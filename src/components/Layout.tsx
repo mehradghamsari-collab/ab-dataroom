@@ -8,18 +8,10 @@ import { cx } from '../lib/utils'
 function Logo() {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand text-white">
-        <svg width="17" height="17" viewBox="0 0 32 32" fill="none">
-          <path
-            d="M16 5c3.8 4.7 6.4 8.1 6.4 11.4a6.4 6.4 0 1 1-12.8 0C9.6 13.1 12.2 9.7 16 5z"
-            fill="currentColor"
-            opacity="0.95"
-          />
-        </svg>
-      </span>
+      <img src="/logo-mark.png" alt="A&B Smart Materials" className="h-9 w-9 rounded-lg" />
       <div className="leading-tight">
-        <div className="text-sm font-semibold tracking-tight">AB Smart Materials</div>
-        <div className="text-2xs font-medium uppercase tracking-widest text-subtle">Dataroom</div>
+        <div className="text-sm font-semibold tracking-tight text-white">A&amp;B Smart Materials</div>
+        <div className="text-2xs font-medium uppercase tracking-[0.22em] text-brand-bright">Dataroom</div>
       </div>
     </div>
   )
@@ -43,12 +35,18 @@ function NavItems({ onNavigate, isAdmin }: { onNavigate?: () => void; isAdmin: b
           className={({ isActive }) =>
             cx(
               'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              isActive ? 'bg-brand-tint text-brand-dark' : 'text-muted hover:bg-black/[0.04] hover:text-ink',
+              isActive
+                ? 'bg-white/[0.12] text-white'
+                : 'text-white/60 hover:bg-white/[0.07] hover:text-white',
             )
           }
         >
-          <it.icon size={18} strokeWidth={2} />
-          {it.label}
+          {({ isActive }) => (
+            <>
+              <it.icon size={18} strokeWidth={2} className={isActive ? 'text-brand-bright' : ''} />
+              {it.label}
+            </>
+          )}
         </NavLink>
       ))}
     </nav>
@@ -61,16 +59,16 @@ export function Layout() {
   const nav = useNavigate()
 
   const UserCard = (
-    <div className="flex items-center justify-between gap-2 rounded-lg border border-line bg-paper px-3 py-2">
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2">
       <div className="flex min-w-0 items-center gap-2.5">
         <OwnerAvatar name={profile?.full_name || profile?.email || '?'} size={30} />
         <div className="min-w-0 leading-tight">
-          <div className="truncate text-sm font-medium">{profile?.full_name || profile?.email}</div>
-          <div className="truncate text-2xs capitalize text-subtle">{profile?.role}</div>
+          <div className="truncate text-sm font-medium text-white">{profile?.full_name || profile?.email}</div>
+          <div className="truncate text-2xs capitalize text-white/45">{profile?.role}</div>
         </div>
       </div>
       <button
-        className="btn-ghost h-8 w-8 p-0 text-muted"
+        className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white"
         title="Sign out"
         onClick={async () => {
           await signOut()
@@ -85,7 +83,7 @@ export function Layout() {
   return (
     <div className="flex h-full">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-line bg-surface px-3 py-4 lg:flex">
+      <aside className="hidden w-64 shrink-0 flex-col bg-navy px-3 py-4 lg:flex">
         <div className="px-2">
           <Logo />
         </div>
@@ -95,11 +93,11 @@ export function Layout() {
         <div className="mt-auto px-1">{UserCard}</div>
       </aside>
 
-      {/* Mobile top bar */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden">
+        {/* Mobile top bar */}
+        <header className="flex items-center justify-between bg-navy px-4 py-3 lg:hidden">
           <Logo />
-          <button className="btn-ghost h-9 w-9 p-0" onClick={() => setDrawer(true)} aria-label="Menu">
+          <button className="grid h-9 w-9 place-items-center rounded-lg text-white/80 hover:bg-white/10" onClick={() => setDrawer(true)} aria-label="Menu">
             <Menu size={20} />
           </button>
         </header>
@@ -107,11 +105,11 @@ export function Layout() {
         {/* Mobile drawer */}
         {drawer && (
           <div className="fixed inset-0 z-50 lg:hidden">
-            <div className="absolute inset-0 bg-ink/35" onClick={() => setDrawer(false)} />
-            <div className="absolute inset-y-0 left-0 flex w-72 max-w-[82vw] flex-col bg-surface px-3 py-4 shadow-pop">
+            <div className="absolute inset-0 bg-ink/45" onClick={() => setDrawer(false)} />
+            <div className="absolute inset-y-0 left-0 flex w-72 max-w-[82vw] flex-col bg-navy px-3 py-4 shadow-pop">
               <div className="flex items-center justify-between px-2">
                 <Logo />
-                <button className="btn-ghost h-8 w-8 p-0" onClick={() => setDrawer(false)}>
+                <button className="grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/10" onClick={() => setDrawer(false)}>
                   <X size={18} />
                 </button>
               </div>

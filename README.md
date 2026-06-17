@@ -1,4 +1,4 @@
-# AB Smart Materials · Dataroom
+# A&B Smart Materials · Dataroom
 
 A shared, live web app for logging lab experiments and plotting results — built with React + Vite on the front end and **Supabase** (Postgres database + authentication) on the back end. Real access control: only emails you approve can read or write, with `reza@absmartmaterials.com` as the founding admin.
 
@@ -29,13 +29,13 @@ You do **not** need to know how to code. Follow the steps in order.
 3. **New query** again. Open **`supabase/seed_experiments.sql`**, copy everything, paste, and **Run**. This imports all 522 experiments with their materials, processes, and results. It may take 10–30 seconds.
    - *If the editor complains the script is too large,* paste and run it in two halves — it's just a long list of inserts and can be split anywhere between two `insert` statements.
 
-## Step 3 — Turn on instant logins (recommended)
+## Step 3 — Turn off email confirmation (required)
 
-By default Supabase emails a confirmation link on signup. For a small internal team it's simpler to skip that:
+The app currently uses **email-only login** (no passwords — see *Login mode* below), which needs this turned off:
 
 - Go to **Authentication → Sign In / Providers → Email** and turn **Confirm email** *off*, then save.
 
-(If you'd rather keep email confirmation on, that's fine too — each person just clicks the link in their inbox once before their first sign-in.)
+That's it — people sign in by just typing their email.
 
 ## Step 4 — Copy your two keys
 
@@ -68,16 +68,26 @@ The easiest path uses GitHub:
 
 ## Step 6 — First sign-in and adding your team
 
-1. Open the live link and click **Request access**. Sign up with **`reza@absmartmaterials.com`** — this account is automatically the **admin** and is approved instantly.
+1. Open the live link and enter **`reza@absmartmaterials.com`**, then click **Continue**. This account is automatically the **admin** and is approved instantly — no password to set.
 2. Sign in. You'll land on the experiments list with all 522 records.
 3. To add teammates, go to **Team & access** (admin-only, in the sidebar). Two ways:
-   - **Pre-authorize (smoothest):** add a teammate's email under *Pre-authorized emails*. When they sign up with that email, they're approved automatically.
-   - **Approve on request:** let them sign up first, then click **Approve** next to their name.
+   - **Pre-authorize (smoothest):** add a teammate's email under *Pre-authorized emails*. When they enter that email, they're approved automatically.
+   - **Approve on request:** let them enter their email first (they'll see an "access pending" screen), then click **Approve** next to their name.
 4. You can promote anyone to **admin** or **revoke** access from the same page.
 
 That's it — you're live.
 
 ---
+
+## Login mode (passwordless)
+
+Right now login is **email-only**: people type their email and they're in — no password. It's the simplest way to get the team started.
+
+- New emails still land **pending** until an admin approves them, and `reza@absmartmaterials.com` is still the admin, so you keep control over *who* can see data.
+- It is **not** strong security: anyone who has the app link and knows an approved email could sign in as that person. Fine for an internal tool among colleagues; not something to make public.
+- It requires **Confirm email** to be off (Step 3).
+
+**To switch to real passwords later:** open `src/config.ts`, change `PASSWORDLESS` to `false`, and redeploy (commit the change on GitHub — Vercel rebuilds automatically). After that, the login screen asks for a password. Accounts created during passwordless mode will need a password reset to sign back in (an admin can trigger this from the Supabase dashboard under *Authentication → Users*).
 
 ## How access control works
 

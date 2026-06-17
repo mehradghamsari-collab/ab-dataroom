@@ -2,6 +2,22 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import type { Profile } from '../lib/types'
+import { PASSWORDLESS } from '../config'
+
+// Deterministic per-email password used only in passwordless mode, so the user
+// never types or sees a password. This is a convenience, not strong security.
+function derivePassword(email: string): string {
+  const s = email.trim().toLowerCase() + '::ab-smart-materials::pwless::v1'
+  const fnv = (str: string, seed: number) => {
+    let h = seed >>> 0
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i)
+      h = Math.imul(h, 0x01000193) >>> 0
+    }
+    return (h >>> 0).toString(36)
+  }
+  return `Ab1!${fnv(s, 0x811c9dc5)}${fnv(s + '|x', 0x12345678)}`
+}
 
 interface AuthValue {
   session: Session | null
@@ -9,8 +25,10 @@ interface AuthValue {
   loading: boolean
   isAdmin: boolean
   isApproved: boolean
+  passwordless: boolean
   signIn: (email: string, password: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string; needsConfirm?: boolean }>
+  enterWithEmail: (email: string, fullName?: string) => Promise<{ error?: string; needsConfirm?: boolean }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
 }
@@ -62,6 +80,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { needsConfirm: !data.session }
   }
 
+  // Email-only entry: try to sign in with the derived password; if no account
+  // exists yet, create one. New accounts land "pending" until an admin approves.
+  const enterWithEmail: AuthValue['enterWithEmail'] = async (email, fullName) => {
+    const addr = email.trim()
+    const pw = derivePassword(addr)
+    const { error: inErr } = await supabase.auth.signInWithPassword({ email: addr, password: pw })
+    if (!inErr) return {}
+    const msg = inErr.message.toLowerCase()
+    if (msg.includes('not confirmed') || msg.includes('confirm')) return { needsConfirm: true }
+    if (msg.includes('invalid') || msg.includes('credentials')) {
+      const { data, error: upErr } = await supabase.auth.signUp({
+        email: addr,
+        password: pw,
+        options: { data: { full_name: fullName?.trim() || undefined } },
+      })
+      if (upErr) {
+        if (upErr.message.toLowerCase().includes('already'))
+          return { error: 'This email already has a password set. Ask an admin to reset it, or turn passwordless mode off.' }
+        return { error: upErr.message }
+      }
+      if (!data.session) return { needsConfirm: true }
+      return {}
+    }
+    return { error: inErr.message }
+  }
+
   const signOut = async () => {
     await supabase.auth.signOut()
     setProfile(null)
@@ -73,8 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     isAdmin: profile?.role === 'admin' && profile?.status === 'approved',
     isApproved: profile?.status === 'approved',
+    passwordless: PASSWORDLESS,
     signIn,
     signUp,
+    enterWithEmail,
     signOut,
     refreshProfile: async () => session && loadProfile(session.user.id),
   }
