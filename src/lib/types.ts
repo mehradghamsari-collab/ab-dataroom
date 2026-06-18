@@ -8,6 +8,7 @@ export interface Profile {
   title: string | null
   role: Role
   status: Status
+  is_manager: boolean
   created_at: string
 }
 
@@ -104,3 +105,63 @@ export type RefTable =
   | 'process_names'
   | 'measure_types'
   | 'result_types'
+
+// ---------- v3: team super-app entities ----------
+export interface Person {
+  id: string
+  email: string
+  full_name: string | null
+  title: string | null
+  role: Role
+  is_manager: boolean
+}
+
+export type CheckinKind = 'morning' | 'update'
+export interface Checkin {
+  id: string
+  user_id: string
+  kind: CheckinKind
+  body: string
+  created_at: string
+}
+
+export type ExternalTestStatus = 'sent' | 'in_progress' | 'results_in' | 'cancelled'
+export interface ExternalTest {
+  id: string
+  experiment_id: string | null
+  sample_label: string | null
+  destination: string | null
+  delivery_company: string | null
+  reference_code: string | null
+  sent_date: string | null
+  status: ExternalTestStatus
+  result_summary: string | null
+  result_date: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type LeaveType = 'holiday' | 'sick' | 'remote'
+export type LeaveStatus = 'pending' | 'approved' | 'declined'
+export interface LeaveRequest {
+  id: string
+  user_id: string
+  type: LeaveType
+  start_date: string
+  end_date: string
+  status: LeaveStatus
+  note: string | null
+  decided_by: string | null
+  decided_at: string | null
+  created_at: string
+}
+
+export interface WeeklyGoal {
+  id: string
+  week_start: string
+  body: string
+  created_by: string | null
+  created_at: string
+}

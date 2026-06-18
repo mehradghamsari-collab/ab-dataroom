@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { FlaskConical, Gauge, Ban, Layers, TrendingUp, TrendingDown, Trophy, Calendar, ArrowRight, Beaker, Target, Download, DatabaseBackup, CheckCircle2 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { FlaskConical, Gauge, Ban, Layers, TrendingUp, TrendingDown, Trophy, Calendar, ArrowRight, Beaker, Target, Download, DatabaseBackup, CheckCircle2, Sun, Sunset, Sparkles, Plus, Trash2, BarChart3, Send, CalendarDays } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import type { FullExperiment } from '../lib/types'
-import { FullLoader, OwnerAvatar, TypePill, MetricPill, Spinner } from '../components/ui'
+import type { FullExperiment, Checkin, CheckinKind, WeeklyGoal } from '../lib/types'
+import { FullLoader, OwnerAvatar, TypePill, MetricPill, Spinner, useToast, useConfirm } from '../components/ui'
 import { ExperimentModal } from './ExperimentEditor'
 import { METRIC_COLOR, sampleMetrics, metricValue, hasAnyMetric } from '../lib/metrics'
 import { exportBackupXlsx } from '../lib/backup'
 import { cx, fmtDate, colorFor } from '../lib/utils'
+import { weekStartISO, fmtTime, personName, personById, detectSets } from '../lib/team'
+import { projectShort } from '../lib/projects'
 
 const DAY = 86400000
 function startOfDay(d: Date) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x }
@@ -54,12 +58,19 @@ export function Overview() {
         <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><Calendar size={14} /> Week of {new Date(Date.now() - 6 * DAY).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</p>
       </div>
 
+      <WeeklyGoalsBar />
+
       {/* Stat cards */}
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard i={0} icon={<FlaskConical size={18} />} color="#0B1F3A" label="Total experiments" value={stats.total} />
         <StatCard i={1} icon={<Gauge size={18} />} color={METRIC_COLOR.FSC} label="With results" value={stats.withResults} sub={`${Math.round((stats.withResults / Math.max(1, stats.total)) * 100)}% of all`} />
         <StatCard i={2} icon={<TrendingUp size={18} />} color={METRIC_COLOR.CRC} label="Logged this week" value={stats.thisWeek} sub={delta === 0 ? 'same as last week' : `${delta > 0 ? '+' : ''}${delta} vs last week`} />
         <StatCard i={3} icon={<Ban size={18} />} color="#9AA0A6" label="Discontinued" value={stats.discontinued} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr]">
+        <TeamToday />
+        <SuggestedPlots openExp={openExp} />
       </div>
 
       <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[1fr_1.1fr]">
@@ -267,6 +278,176 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
       <div>
         <div className="data text-lg font-bold text-ink">{value}</div>
         <div className="text-2xs text-subtle">{label}</div>
+      </div>
+    </div>
+  )
+}
+
+/* ===================== Weekly goals (managers set each Monday) ===================== */
+function WeeklyGoalsBar() {
+  const { weeklyGoals, people, refetchTeam } = useData()
+  const { profile, isAdmin } = useAuth()
+  const toast = useToast()
+  const confirm = useConfirm()
+  const canManage = isAdmin || !!profile?.is_manager
+  const wk = weekStartISO()
+  const [adding, setAdding] = useState(false)
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const goals = useMemo(() => weeklyGoals.filter((g) => g.week_start === wk), [weeklyGoals, wk])
+
+  const add = async () => {
+    if (!text.trim()) return
+    setBusy(true)
+    const { error } = await supabase.from('weekly_goals').insert({ week_start: wk, body: text.trim(), created_by: profile?.id ?? null })
+    setBusy(false)
+    if (error) return toast(error.message, 'err')
+    setText(''); setAdding(false); await refetchTeam(); toast('Goal added for the week')
+  }
+  const remove = async (g: WeeklyGoal) => {
+    if (!(await confirm({ title: 'Remove this goal?', message: 'It will disappear for everyone.', confirmLabel: 'Remove', danger: true }))) return
+    await supabase.from('weekly_goals').delete().eq('id', g.id); await refetchTeam()
+  }
+
+  if (goals.length === 0 && !canManage) return null
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-tint/70 to-[#EAF1FB] p-4 animate-fadeUp sm:p-5">
+      <div className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-navy"><Target size={16} className="text-brand" /> Goals for this week</h2>
+        {canManage && !adding && <button className="btn-soft-teal h-8 px-2.5 text-xs" onClick={() => setAdding(true)}><Plus size={14} /> Add goal</button>}
+      </div>
+      {goals.length === 0 ? (
+        <p className="mt-2 text-sm text-muted">{canManage ? 'Set this week’s goals so the whole team sees them.' : 'No goals set yet.'}</p>
+      ) : (
+        <ul className="mt-3 space-y-1.5">
+          {goals.map((g) => (
+            <li key={g.id} className="flex items-start gap-2.5 rounded-lg bg-surface/70 px-3 py-2">
+              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+              <span className="flex-1 text-sm text-ink">{g.body}</span>
+              <span className="hidden text-2xs text-subtle sm:block">{personName(people, g.created_by)}</span>
+              {canManage && <button onClick={() => remove(g)} className="text-subtle transition hover:text-danger"><Trash2 size={13} /></button>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding && (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input autoFocus className="field flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="e.g. Finish polycondensation scale-up trials" />
+          <div className="flex gap-2">
+            <button className="btn-primary" onClick={add} disabled={busy}>{busy ? <Spinner className="h-4 w-4" /> : 'Add'}</button>
+            <button className="btn-ghost" onClick={() => { setAdding(false); setText('') }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ===================== Daily check-ins (morning goal / day update) ===================== */
+function TeamToday() {
+  const { checkins, people, refetchTeam } = useData()
+  const { profile } = useAuth()
+  const toast = useToast()
+  const [kind, setKind] = useState<CheckinKind>('morning')
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const todayStr = new Date().toDateString()
+  const today = useMemo(() => checkins.filter((c) => new Date(c.created_at).toDateString() === todayStr), [checkins, todayStr])
+  // group by user → { morning, update }
+  const byUser = useMemo(() => {
+    const m = new Map<string, { morning?: Checkin; update?: Checkin; latest: string }>()
+    for (const c of today) {
+      const cur = m.get(c.user_id) ?? { latest: c.created_at }
+      if (c.kind === 'morning' && (!cur.morning || c.created_at > cur.morning.created_at)) cur.morning = c
+      if (c.kind === 'update' && (!cur.update || c.created_at > cur.update.created_at)) cur.update = c
+      if (c.created_at > cur.latest) cur.latest = c.created_at
+      m.set(c.user_id, cur)
+    }
+    return [...m.entries()].sort((a, b) => (a[1].latest < b[1].latest ? 1 : -1))
+  }, [today])
+
+  const post = async () => {
+    if (!text.trim() || !profile) return
+    setBusy(true)
+    const { error } = await supabase.from('checkins').insert({ user_id: profile.id, kind, body: text.trim() })
+    setBusy(false)
+    if (error) return toast(error.message, 'err')
+    setText(''); await refetchTeam(); toast(kind === 'morning' ? 'Morning goal posted' : 'Update posted')
+  }
+
+  const hour = new Date().getHours()
+  // suggest the relevant kind by time of day
+  useEffect(() => { setKind(hour < 12 ? 'morning' : 'update') }, []) // eslint-disable-line
+
+  return (
+    <div className="card stagger p-5" style={{ ['--i' as any]: 1 }}>
+      <div className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><Sun size={16} className="text-orange" /> Team today</h2>
+        <span className="text-2xs text-subtle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span>
+      </div>
+
+      {/* composer */}
+      <div className="mt-3 rounded-xl border border-line bg-paper/60 p-3">
+        <div className="mb-2 inline-flex rounded-lg bg-black/[0.04] p-0.5">
+          <button onClick={() => setKind('morning')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'morning' ? 'bg-surface text-orange-dark shadow-card' : 'text-muted')}><Sun size={13} /> Morning goal</button>
+          <button onClick={() => setKind('update')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'update' ? 'bg-surface text-brand-dark shadow-card' : 'text-muted')}><Sunset size={13} /> Day update</button>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input className="field flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && post()} placeholder={kind === 'morning' ? 'What are you focusing on today?' : 'What did you get done / where are you at?'} />
+          <button className="btn-primary" onClick={post} disabled={busy || !text.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Post'}</button>
+        </div>
+      </div>
+
+      {/* feed */}
+      <div className="mt-4 space-y-3">
+        {byUser.length === 0 ? (
+          <p className="text-sm text-subtle">No check-ins yet today. Be the first to share your morning goal.</p>
+        ) : (
+          byUser.map(([uid, v]) => (
+            <div key={uid} className="flex gap-2.5">
+              <OwnerAvatar name={personName(people, uid)} size={30} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-ink">{personName(people, uid)}{uid === profile?.id && <span className="ml-1 text-2xs font-normal text-subtle">(you)</span>}</div>
+                {v.morning && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sun size={12} className="mt-1 shrink-0 text-orange" /> <span className="flex-1">{v.morning.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.morning.created_at)}</span></p>}
+                {v.update && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sunset size={12} className="mt-1 shrink-0 text-brand" /> <span className="flex-1">{v.update.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.update.created_at)}</span></p>}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ===================== Suggested comparisons (auto-detected sets) ===================== */
+function SuggestedPlots({ openExp }: { openExp: (e: FullExperiment) => void }) {
+  const { experiments } = useData()
+  const nav = useNavigate()
+  const sets = useMemo(() => detectSets(experiments, { minSize: 2, max: 5 }).filter((s) => s.withResults >= 1), [experiments])
+
+  return (
+    <div className="card stagger p-5" style={{ ['--i' as any]: 2 }}>
+      <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles size={16} className="text-brand" /> Suggested comparisons</h2>
+      <p className="mt-1 text-xs text-muted">Experiment sets logged together — plot them in one click.</p>
+      <div className="mt-3 space-y-2">
+        {sets.length === 0 ? (
+          <p className="text-sm text-subtle">Log a few experiments on the same day and they’ll show up here, ready to compare.</p>
+        ) : (
+          sets.map((s) => {
+            const enLabel = s.ens.length > 3 ? `EN${s.ens[0]}–EN${s.ens[s.ens.length - 1]}` : s.ens.map((n) => `EN${n}`).join(', ')
+            return (
+              <div key={s.key} className="flex items-center gap-3 rounded-xl border border-line bg-paper/60 px-3 py-2.5">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-tint text-brand-dark"><BarChart3 size={16} /></span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-ink">{enLabel}</div>
+                  <div className="text-2xs text-muted">{s.owner} · {fmtDate(s.date)} · {s.ids.length} samples{s.project ? ` · ${projectShort(s.project)}` : ''}</div>
+                </div>
+                <button className="btn-soft-teal h-8 px-3 text-xs" onClick={() => nav('/graphs', { state: { compareIds: s.ids } })}>Plot</button>
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )

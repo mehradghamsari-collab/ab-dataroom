@@ -12,6 +12,8 @@ const Overview = lazy(() => import('./pages/Overview').then((m) => ({ default: m
 const Graphs = lazy(() => import('./pages/Graphs').then((m) => ({ default: m.Graphs })))
 const Library = lazy(() => import('./pages/Library').then((m) => ({ default: m.Library })))
 const Reports = lazy(() => import('./pages/Reports').then((m) => ({ default: m.Reports })))
+const External = lazy(() => import('./pages/External').then((m) => ({ default: m.External })))
+const Calendar = lazy(() => import('./pages/Calendar').then((m) => ({ default: m.Calendar })))
 const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
 const lazyEl = (node: React.ReactNode) => <Suspense fallback={<FullLoader />}>{node}</Suspense>
 
@@ -83,6 +85,8 @@ function Shell() {
         <Route path="/graphs" element={lazyEl(<Graphs />)} />
         <Route path="/library" element={lazyEl(<Library />)} />
         <Route path="/reports" element={lazyEl(<Reports />)} />
+        <Route path="/external" element={lazyEl(<External />)} />
+        <Route path="/calendar" element={lazyEl(<Calendar />)} />
         <Route path="/admin" element={lazyEl(<RequireAdmin><Admin /></RequireAdmin>)} />
       </Route>
       <Route path="*" element={<Navigate to="/overview" replace />} />

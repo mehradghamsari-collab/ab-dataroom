@@ -231,3 +231,21 @@ The weekly backup (Overview page) is now a fully styled workbook with a navy tit
 
 - More colour throughout, drawn from the logo — pastel action buttons, colour‑coded work packages, and tinted Step 1 (teal) / Step 2 (orange) blocks in the experiment form.
 - Charts now render reliably on phones, including **Compare samples**.
+
+---
+
+## v3 — Team super-app
+
+Run **`supabase/migration_v3.sql`** once in the Supabase SQL Editor (safe to re-run), in addition to the earlier migrations. It adds four tables (`checkins`, `external_tests`, `leave_requests`, `weekly_goals`), a manager role, and tighter edit permissions, and turns on realtime for them.
+
+**What's new**
+
+- **Daily check-ins (Overview → "Team today").** Each person posts a *morning goal* and an *afternoon update*; everyone sees the feed with timestamps. Because every post is time-stamped, the morning/afternoon entries double as a lightweight record of when people start and wrap up.
+- **Weekly goals (Overview banner).** Managers add the week's goals each Monday; they show at the top of everyone's landing page for the current week.
+- **External testing (new "External tests" tab).** Log samples sent out — linked experiment, sample label, destination lab, delivery company, reference/tracking code, date sent, and status. Results (summary + date) are stored in the app so the whole team stays updated.
+- **Team calendar (new "Team calendar" tab).** Anyone can request **holiday**, **remote**, or **sick** leave. Managers (**Ben** and **Amaury**) approve or decline; approved leave appears on a shared month calendar colour-coded by type. A side panel shows approved holiday weekdays used per person for the current year. Managers can file leave on behalf of someone, and their own requests are auto-approved.
+- **Owner-only editing.** Only the experiment's creator or an admin can edit or delete it (enforced in the UI and in the database). Imported historical experiments have no creator, so only admins can edit those.
+- **Smarter plotting.** The Overview shows *suggested comparisons* — experiment sets logged on the same day — with a one-click "Plot" button. In **Plot & analyse**, the old "Explore" tab is replaced by **Breakdown**: average FSC/CRC/AUP by work package, synthesis method, or researcher (click a bar to drill into its samples), plus a raw-material view that charts every sample using a chosen material. A dashed line marks the SYNTHETIC benchmark.
+- **Roster visibility.** Approved teammates can now see each other's names/titles (needed for the check-in, calendar, and goals boards). Only admins can change roles/approvals.
+
+**Manager vs admin.** *Admins* (Reza, Fabiola, Amaury) manage accounts and access. *Managers* (Ben, Amaury) approve leave. The two are independent — Ben is a manager but not an admin.

@@ -22,6 +22,8 @@ const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', valu
 
 export function ExperimentModal({ open, experiment, initialMode, onClose }: { open: boolean; experiment: FullExperiment | null; initialMode: Mode; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>(initialMode)
+  const { profile, isAdmin } = useAuth()
+  const canEdit = !experiment || isAdmin || (!!experiment.created_by && experiment.created_by === profile?.id)
   useEffect(() => setMode(initialMode), [initialMode, experiment])
   return (
     <Modal
@@ -40,16 +42,16 @@ export function ExperimentModal({ open, experiment, initialMode, onClose }: { op
       }
     >
       {mode === 'view' && experiment ? (
-        <ExperimentView experiment={experiment} onEdit={() => setMode('edit')} />
+        <ExperimentView experiment={experiment} canEdit={canEdit} onEdit={() => setMode('edit')} />
       ) : (
-        <ExperimentForm experiment={mode === 'edit' ? experiment : null} onCancel={() => (experiment ? setMode('view') : onClose())} onSaved={onClose} />
+        <ExperimentForm experiment={mode === 'edit' ? experiment : null} canEdit={canEdit} onCancel={() => (experiment ? setMode('view') : onClose())} onSaved={onClose} />
       )}
     </Modal>
   )
 }
 
 /* ----------------------------- Read-only view ----------------------------- */
-function ExperimentView({ experiment: e, onEdit }: { experiment: FullExperiment; onEdit: () => void }) {
+function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullExperiment; canEdit: boolean; onEdit: () => void }) {
   const { chemicals } = useData()
   const byStage = (arr: any[], s: Stage | null) => arr.filter((x) => (x.stage ?? null) === s).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
   const m = sampleMetrics(e)
@@ -74,7 +76,10 @@ function ExperimentView({ experiment: e, onEdit }: { experiment: FullExperiment;
         )}
         {e.is_two_step && <Meta label="Format"><span className="pill bg-brand-tint text-brand-dark"><Layers size={11} className="mr-1" />Two-step</span></Meta>}
         {e.repeat && <Meta label="Repeat"><span className="text-sm">{e.repeat}</span></Meta>}
-        <div className="ml-auto"><button className="btn-outline" onClick={onEdit}><Pencil size={15} /> Edit</button></div>
+        <div className="ml-auto">{canEdit
+          ? <button className="btn-outline" onClick={onEdit}><Pencil size={15} /> Edit</button>
+          : <span className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-paper px-2.5 py-1.5 text-xs text-subtle"><Ban size={13} /> View only · {e.owner || 'owner'}’s experiment</span>}
+        </div>
       </div>
 
       {(m.FSC !== null || m.CRC !== null || m.AUP !== null) && (
@@ -169,7 +174,7 @@ function DataTable({ head, rows, mono }: { head: string[]; rows: string[][]; mon
 }
 
 /* ------------------------------- Edit form -------------------------------- */
-function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExperiment | null; onCancel: () => void; onSaved: () => void }) {
+function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment: FullExperiment | null; canEdit: boolean; onCancel: () => void; onSaved: () => void }) {
   const { chemicals, types, processes, measures, results, owners, addRef, addChemicalByName, refetchExperiments } = useData()
   const { profile } = useAuth()
   const toast = useToast()
@@ -280,6 +285,13 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
 
   return (
     <div className="space-y-6">
+      <div className="-mx-5 -mt-4 mb-1 border-b border-line bg-gradient-to-r from-brand-tint via-[#EEF3FB] to-orange-tint/50 px-5 py-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-navy">
+          <span className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-brand to-brand-dark text-white shadow-card"><FlaskConical size={15} /></span>
+          {experiment ? `Editing EN${experiment.en}` : 'New experiment'}
+        </div>
+        <p className="mt-0.5 text-2xs text-muted">{experiment ? 'Update the details below — changes sync to the team instantly.' : 'Fill in what you know. You can add results and costs any time.'}</p>
+      </div>
       <div className="grid grid-cols-1 gap-x-4 gap-y-3.5 sm:grid-cols-2">
         <div><label className="label">Date</label><input type="date" className="field" value={date ?? ''} onChange={(e) => setDate(e.target.value)} /></div>
         <div><label className="label">Owner</label><Combobox value={owner} onChange={setOwner} options={owners} allowFreeText placeholder="Who ran it" onCreate={(v) => setOwner(v)} createLabel={(v) => `Use “${v}”`} /></div>
@@ -392,7 +404,7 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
 
       <div className="sticky bottom-0 -mx-5 -mb-4 flex items-center justify-between gap-2 border-t border-line bg-surface/95 px-5 py-3 backdrop-blur">
         <div>
-          {experiment && (
+          {experiment && canEdit && (
             <button className="btn-danger" onClick={async () => {
               if (await confirm({ title: `Delete EN${experiment.en}?`, message: 'This removes the experiment and all its data. This cannot be undone.', confirmLabel: 'Delete', danger: true })) {
                 await supabase.from('experiments').delete().eq('id', experiment.id); await refetchExperiments(); toast('Experiment deleted'); onSaved()

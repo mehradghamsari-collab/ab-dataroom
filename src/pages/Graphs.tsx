@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   ResponsiveContainer, ScatterChart, Scatter, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ZAxis, Cell, LabelList, ReferenceLine, ReferenceArea,
@@ -8,6 +9,7 @@ import { useData } from '../context/DataContext'
 import type { FullExperiment, Benchmark } from '../lib/types'
 import { FullLoader, EmptyState, Tabs, Segmented, MetricPill, ChartWatermark } from '../components/ui'
 import { METRICS, METRIC_COLOR, sampleMetrics, metricValue, formulationCost } from '../lib/metrics'
+import { projectShort } from '../lib/projects'
 import { cx, colorFor, parseNum, downloadCSV } from '../lib/utils'
 
 const GRID = '#ECEAE3'
@@ -18,21 +20,23 @@ const legendStyle = { fontSize: 12, paddingTop: 8, fontWeight: 600 }
 
 export function Graphs() {
   const { loading } = useData()
+  const location = useLocation()
+  const initialCompare = (location.state as any)?.compareIds as string[] | undefined
   const [tab, setTab] = useState('compare')
   if (loading) return <FullLoader label="Loading data" />
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="animate-fadeUp">
         <h1 className="text-2xl font-semibold tracking-tight">Plot &amp; analyse</h1>
-        <p className="mt-1 text-sm text-muted">Compare samples, explore relationships, and benchmark performance and cost.</p>
+        <p className="mt-1 text-sm text-muted">Compare samples, break results down by work package, material or method, and benchmark performance and cost.</p>
       </div>
       <div className="mt-5">
-        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'matrices', label: 'Matrices' }, { key: 'explore', label: 'Explore' }]} />
+        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'breakdown', label: 'Breakdown' }, { key: 'matrices', label: 'Matrices' }]} />
       </div>
       <div className="mt-5 animate-fadeIn">
-        {tab === 'compare' && <CompareTab />}
+        {tab === 'compare' && <CompareTab initial={initialCompare} />}
+        {tab === 'breakdown' && <BreakdownTab />}
         {tab === 'matrices' && <MatricesTab />}
-        {tab === 'explore' && <ExploreTab />}
       </div>
     </div>
   )
@@ -41,12 +45,14 @@ export function Graphs() {
 /* =====================================================================
    COMPARE — pick experiments, choose metrics, grouped bar chart
    ===================================================================== */
-function CompareTab() {
+function CompareTab({ initial }: { initial?: string[] }) {
   const { experiments } = useData()
   const withMetrics = useMemo(() => experiments.filter((e) => { const m = sampleMetrics(e); return m.FSC !== null || m.CRC !== null || m.AUP !== null }), [experiments])
-  const [picked, setPicked] = useState<string[]>([])
+  const [picked, setPicked] = useState<string[]>(initial ?? [])
   const [activeMetrics, setActiveMetrics] = useState<Record<'FSC' | 'CRC' | 'AUP', boolean>>({ FSC: true, CRC: true, AUP: true })
 
+  // preselect from a suggestion if provided
+  useEffect(() => { if (initial && initial.length) setPicked(initial) }, [initial])
   // default: pick the most recent few
   useEffect(() => {
     if (picked.length === 0 && withMetrics.length) setPicked(withMetrics.slice(0, Math.min(5, withMetrics.length)).map((e) => e.id))
@@ -314,163 +320,6 @@ function ParityTip({ active, payload, metric }: any) {
   )
 }
 
-/* =====================================================================
-   EXPLORE — flexible scatter / bar / line over any numeric result
-   ===================================================================== */
-interface Row { en: number | null; owner: string; type: string; date: string | null; metrics: Record<string, number> }
-function buildRows(exps: FullExperiment[]): { rows: Row[]; numericFields: string[] } {
-  const fieldSet = new Set<string>()
-  const rows = exps.map((e) => {
-    const metrics: Record<string, number> = {}
-    e.experiment_results.forEach((r) => {
-      if (!r.result_type) return
-      const n = r.value_num ?? parseNum(r.value)
-      if (n !== null && !(r.result_type in metrics)) { metrics[r.result_type] = n; fieldSet.add(r.result_type) }
-    })
-    return { en: e.en, owner: e.owner || 'Unassigned', type: e.experiment_type || 'Untyped', date: e.date, metrics }
-  })
-  return { rows, numericFields: [...fieldSet].sort() }
-}
-
-type ChartType = 'scatter' | 'bar' | 'line'
-type Agg = 'avg' | 'max' | 'min' | 'count'
-
-function ExploreTab() {
-  const { experiments, owners, types } = useData()
-  const { rows, numericFields } = useMemo(() => buildRows(experiments), [experiments])
-  const [chart, setChart] = useState<ChartType>('scatter')
-  const [xField, setXField] = useState('')
-  const [yField, setYField] = useState('')
-  const [groupBy, setGroupBy] = useState<'owner' | 'type'>('type')
-  const [agg, setAgg] = useState<Agg>('avg')
-  const [colorBy, setColorBy] = useState<'none' | 'owner' | 'type'>('type')
-  const [ownerF, setOwnerF] = useState<string[]>([])
-  const [typeF, setTypeF] = useState<string[]>([])
-  const [showFilters, setShowFilters] = useState(false)
-
-  useEffect(() => {
-    if (numericFields.length && !xField) setXField(numericFields.find((f) => /crc/i.test(f)) ?? numericFields[0])
-    if (numericFields.length && !yField) setYField(numericFields.find((f) => /fsc/i.test(f)) ?? numericFields[1] ?? numericFields[0])
-  }, [numericFields, xField, yField])
-
-  const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
-  const filtered = useMemo(() => rows.filter((r) => (ownerF.length === 0 || ownerF.includes(r.owner)) && (typeF.length === 0 || typeF.includes(r.type))), [rows, ownerF, typeF])
-
-  if (numericFields.length === 0) return <EmptyState title="No numeric results yet" hint="Once experiments have numeric results (FSC, CRC, AUP…), you can plot them here." />
-
-  return (
-    <div>
-      <div className="flex justify-end">
-        <button className={cx('btn-outline', (ownerF.length + typeF.length) && 'border-brand-ring text-brand-dark')} onClick={() => setShowFilters((s) => !s)}>
-          <Filter size={15} /> Filters{ownerF.length + typeF.length > 0 && <span className="data ml-0.5 rounded bg-brand px-1.5 text-2xs text-white">{ownerF.length + typeF.length}</span>}
-        </button>
-      </div>
-      {showFilters && (
-        <div className="mt-3 space-y-3 rounded-xl border border-line bg-surface p-3.5 animate-scaleIn">
-          <ChipRow label="Owner" options={owners} selected={ownerF} onToggle={(v) => toggle(ownerF, v, setOwnerF)} />
-          <ChipRow label="Type" options={types.map((t) => t.name)} selected={typeF} onToggle={(v) => toggle(typeF, v, setTypeF)} />
-          {(ownerF.length + typeF.length > 0) && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => { setOwnerF([]); setTypeF([]) }}><X size={13} /> Clear</button>}
-        </div>
-      )}
-
-      <div className="mt-4 grid grid-cols-1 gap-5 lg:grid-cols-[280px_1fr]">
-        <div className="card h-fit space-y-4 p-4">
-          <div>
-            <label className="label">Chart type</label>
-            <div className="grid grid-cols-3 gap-1.5">
-              {([['scatter', ScatterIcon, 'Scatter'], ['bar', BarChart3, 'Bar'], ['line', LineIcon, 'Trend']] as const).map(([v, Icon, lbl]) => (
-                <button key={v} onClick={() => setChart(v)} className={cx('flex flex-col items-center gap-1 rounded-lg border px-2 py-2.5 text-xs font-medium transition', chart === v ? 'border-brand bg-brand-tint text-brand-dark' : 'border-line text-muted hover:bg-black/[0.03]')}>
-                  <Icon size={17} /> {lbl}
-                </button>
-              ))}
-            </div>
-          </div>
-          {chart === 'scatter' && (<>
-            <Select label="X axis" value={xField} onChange={setXField} options={numericFields} />
-            <Select label="Y axis" value={yField} onChange={setYField} options={numericFields} />
-            <Select label="Colour by" value={colorBy} onChange={(v) => setColorBy(v as any)} options={['none', 'owner', 'type']} labels={{ none: 'None', owner: 'Owner', type: 'Type' }} />
-          </>)}
-          {chart === 'bar' && (<>
-            <Select label="Group by" value={groupBy} onChange={(v) => setGroupBy(v as any)} options={['type', 'owner']} labels={{ type: 'Type', owner: 'Owner' }} />
-            <Select label="Metric" value={yField} onChange={setYField} options={numericFields} />
-            <Select label="Aggregate" value={agg} onChange={(v) => setAgg(v as any)} options={['avg', 'max', 'min', 'count']} labels={{ avg: 'Average', max: 'Maximum', min: 'Minimum', count: 'Count' }} />
-          </>)}
-          {chart === 'line' && (<>
-            <Select label="X axis" value={xField} onChange={setXField} options={['en', ...numericFields]} labels={{ en: 'EN (sequence)' }} />
-            <Select label="Y axis" value={yField} onChange={setYField} options={numericFields} />
-            <Select label="Series" value={colorBy} onChange={(v) => setColorBy(v as any)} options={['none', 'owner', 'type']} labels={{ none: 'Single line', owner: 'Owner', type: 'Type' }} />
-          </>)}
-        </div>
-
-        <div className="card min-h-[460px] p-4">
-          <ExploreChart chart={chart} rows={filtered} xField={xField} yField={yField} groupBy={groupBy} agg={agg} colorBy={colorBy} />
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ExploreChart({ chart, rows, xField, yField, groupBy, agg, colorBy }: { chart: ChartType; rows: Row[]; xField: string; yField: string; groupBy: 'owner' | 'type'; agg: Agg; colorBy: 'none' | 'owner' | 'type' }) {
-  if (chart === 'scatter') {
-    const pts = rows.filter((r) => r.metrics[xField] !== undefined && r.metrics[yField] !== undefined).map((r) => ({ x: r.metrics[xField], y: r.metrics[yField], en: r.en, owner: r.owner, type: r.type }))
-    if (!pts.length) return <NoData />
-    const groups = colorBy === 'none' ? { All: pts } : groupByKey(pts, (p) => (colorBy === 'owner' ? p.owner : p.type))
-    return (
-      <ChartFrame onExport={() => downloadCSV('scatter.csv', pts.map((p) => ({ EN: p.en, owner: p.owner, type: p.type, [xField]: p.x, [yField]: p.y })))} count={pts.length}>
-        <ScatterChart margin={{ top: 12, right: 16, bottom: 30, left: 6 }}>
-          <CartesianGrid stroke={GRID} />
-          <XAxis type="number" dataKey="x" name={xField} tick={tickStyle} stroke={AXIS} label={axisLabel(xField, 'x')} />
-          <YAxis type="number" dataKey="y" name={yField} tick={tickStyle} stroke={AXIS} label={axisLabel(yField, 'y')} width={56} />
-          <ZAxis range={[60, 60]} />
-          <Tooltip content={<PointTip xField={xField} yField={yField} />} />
-          {colorBy !== 'none' && <Legend wrapperStyle={legendStyle} />}
-          {Object.entries(groups).map(([k, data]) => <Scatter key={k} name={k} data={data} fill={colorBy === 'none' ? '#0E8A94' : colorFor(k)} fillOpacity={0.78} />)}
-        </ScatterChart>
-      </ChartFrame>
-    )
-  }
-  if (chart === 'bar') {
-    const buckets = groupByKey(rows.filter((r) => r.metrics[yField] !== undefined || agg === 'count'), (r) => (groupBy === 'owner' ? r.owner : r.type))
-    const data = Object.entries(buckets).map(([k, rs]) => {
-      const vals = rs.map((r) => r.metrics[yField]).filter((v) => v !== undefined)
-      let value = 0
-      if (agg === 'count') value = rs.length
-      else if (vals.length) value = agg === 'avg' ? vals.reduce((a, b) => a + b, 0) / vals.length : agg === 'max' ? Math.max(...vals) : Math.min(...vals)
-      return { label: k, value: Math.round(value * 1000) / 1000, n: rs.length }
-    }).sort((a, b) => b.value - a.value)
-    if (!data.length) return <NoData />
-    const metricLabel = agg === 'count' ? 'Experiments' : `${agg} · ${yField}`
-    return (
-      <ChartFrame onExport={() => downloadCSV('bar.csv', data.map((d) => ({ [groupBy]: d.label, [metricLabel]: d.value, count: d.n })))} count={data.reduce((a, d) => a + d.n, 0)}>
-        <BarChart data={data} margin={{ top: 12, right: 16, bottom: 30, left: 6 }}>
-          <CartesianGrid stroke={GRID} vertical={false} />
-          <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 4 ? -12 : 0} textAnchor={data.length > 4 ? 'end' : 'middle'} height={data.length > 4 ? 52 : 30} />
-          <YAxis tick={tickStyle} stroke={AXIS} width={56} label={axisLabel(metricLabel, 'y')} />
-          <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<BarTip metricLabel={metricLabel} />} />
-          <Bar dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={68}>{data.map((d) => <Cell key={d.label} fill={colorFor(d.label)} />)}</Bar>
-        </BarChart>
-      </ChartFrame>
-    )
-  }
-  const xIsEn = xField === 'en'
-  const valid = rows.filter((r) => r.metrics[yField] !== undefined && (xIsEn ? r.en !== null : r.metrics[xField] !== undefined))
-  if (!valid.length) return <NoData />
-  const series = colorBy === 'none' ? { Trend: valid } : groupByKey(valid, (r) => (colorBy === 'owner' ? r.owner : r.type))
-  const seriesData = Object.entries(series).map(([k, rs]) => ({ name: k, data: rs.map((r) => ({ x: xIsEn ? r.en! : r.metrics[xField], y: r.metrics[yField], en: r.en })).sort((a, b) => (a.x as number) - (b.x as number)) }))
-  return (
-    <ChartFrame onExport={() => downloadCSV('trend.csv', valid.map((r) => ({ EN: r.en, series: colorBy === 'none' ? 'Trend' : colorBy === 'owner' ? r.owner : r.type, [xField]: xIsEn ? r.en : r.metrics[xField], [yField]: r.metrics[yField] })))} count={valid.length}>
-      <LineChart margin={{ top: 12, right: 16, bottom: 30, left: 6 }}>
-        <CartesianGrid stroke={GRID} />
-        <XAxis type="number" dataKey="x" name={xField} tick={tickStyle} stroke={AXIS} domain={['dataMin', 'dataMax']} label={axisLabel(xIsEn ? 'EN' : xField, 'x')} allowDuplicatedCategory={false} />
-        <YAxis type="number" dataKey="y" tick={tickStyle} stroke={AXIS} width={56} label={axisLabel(yField, 'y')} />
-        <Tooltip content={<PointTip xField={xIsEn ? 'EN' : xField} yField={yField} />} />
-        {colorBy !== 'none' && <Legend wrapperStyle={legendStyle} />}
-        {seriesData.map((s) => <Line key={s.name} type="monotone" dataKey="y" data={s.data} name={s.name} stroke={colorBy === 'none' ? '#0E8A94' : colorFor(s.name)} strokeWidth={2} dot={{ r: 2.5 }} connectNulls />)}
-      </LineChart>
-    </ChartFrame>
-  )
-}
-
 /* ---------------- shared helpers ---------------- */
 const round = (n: number) => Math.round(n * 10) / 10
 function axisLabel(text: string, axis: 'x' | 'y') {
@@ -540,6 +389,155 @@ function ChipRow({ label, options, selected, onToggle }: { label: string; option
     <div>
       <div className="label mb-1.5">{label}</div>
       <div className="flex flex-wrap gap-1.5">{options.map((o) => <button key={o} onClick={() => onToggle(o)} className={cx('rounded-full border px-3 py-1 text-xs font-medium transition', selected.includes(o) ? 'border-brand bg-brand-tint text-brand-dark' : 'border-line bg-paper text-muted hover:bg-black/[0.03]')}>{o}</button>)}</div>
+    </div>
+  )
+}
+
+/* =====================================================================
+   BREAKDOWN — average metric per work package / method / owner,
+   plus drill-down to the individual samples in any group or material.
+   ===================================================================== */
+type Dim = 'project' | 'method' | 'owner' | 'material'
+function BreakdownTab() {
+  const { experiments, benchmarks } = useData()
+  const [dim, setDim] = useState<Dim>('project')
+  const [metric, setMetric] = useState<'FSC' | 'CRC' | 'AUP'>('CRC')
+  const [selGroup, setSelGroup] = useState<string | null>(null)
+  const [material, setMaterial] = useState<string>('')
+  const color = METRIC_COLOR[metric]
+  const val = (e: FullExperiment) => sampleMetrics(e)[metric]
+
+  const groupLabel = (e: FullExperiment) =>
+    dim === 'project' ? (e.project ? projectShort(e.project) : 'No work package')
+      : dim === 'method' ? (e.experiment_type || 'Untyped')
+        : (e.owner || 'Unassigned')
+
+  // averages per group (project / method / owner)
+  const groups = useMemo(() => {
+    const m = new Map<string, FullExperiment[]>()
+    experiments.forEach((e) => { const k = groupLabel(e); if (!m.has(k)) m.set(k, []); m.get(k)!.push(e) })
+    const rows = [...m.entries()].map(([label, exps]) => {
+      const vals = exps.map(val).filter((v): v is number => v !== null)
+      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+      return { label, avg: avg !== null ? Math.round(avg * 10) / 10 : null, n: vals.length, exps }
+    }).filter((r) => r.n > 0)
+    rows.sort((a, b) => (b.avg ?? 0) - (a.avg ?? 0))
+    return rows.slice(0, 14)
+  }, [experiments, dim, metric]) // eslint-disable-line
+
+  // material usage (materials used by ≥2 experiments)
+  const materials = useMemo(() => {
+    const c = new Map<string, number>()
+    experiments.forEach((e) => { const names = new Set(e.experiment_materials.map((mm) => mm.name).filter(Boolean) as string[]); names.forEach((n) => c.set(n, (c.get(n) ?? 0) + 1)) })
+    return [...c.entries()].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n }))
+  }, [experiments])
+  useEffect(() => { if (dim === 'material' && !material && materials.length) setMaterial(materials[0].name) }, [dim, materials, material])
+
+  // individual samples for the active group / material
+  const samples = useMemo(() => {
+    let exps: FullExperiment[] = []
+    if (dim === 'material') exps = experiments.filter((e) => e.experiment_materials.some((mm) => mm.name === material))
+    else if (selGroup) exps = groups.find((g) => g.label === selGroup)?.exps ?? []
+    return exps.map((e) => ({ label: `EN${e.en}`, value: val(e), desc: e.description || '' })).filter((d) => d.value !== null)
+      .sort((a, b) => (b.value as number) - (a.value as number))
+  }, [dim, material, selGroup, groups, experiments, metric]) // eslint-disable-line
+
+  const bm = benchmarks.find((b) => /synth/i.test(b.name)) ?? benchmarks[0]
+  const benchVal = bm ? (metric === 'FSC' ? bm.fsc : metric === 'CRC' ? bm.crc : bm.aup) : null
+  const truncate = (s: string) => (s.length > 16 ? s.slice(0, 15) + '…' : s)
+
+  return (
+    <div className="space-y-5">
+      {/* controls */}
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-3.5">
+        <Segmented<Dim> value={dim} onChange={(v) => { setDim(v); setSelGroup(null) }} options={[
+          { value: 'project', label: 'Work package' }, { value: 'method', label: 'Synthesis method' }, { value: 'owner', label: 'Researcher' }, { value: 'material', label: 'Raw material' },
+        ]} />
+        <div className="flex gap-1.5">
+          {(['FSC', 'CRC', 'AUP'] as const).map((k) => (
+            <button key={k} onClick={() => setMetric(k)} className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold transition', metric === k ? 'text-white' : 'bg-black/[0.04] text-muted')} style={metric === k ? { background: METRIC_COLOR[k] } : undefined}>{k}</button>
+          ))}
+        </div>
+      </div>
+
+      {dim === 'material' ? (
+        <div className="card p-4">
+          <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+            <div className="w-full max-w-xs"><Select label="Raw material" value={material} onChange={setMaterial} options={materials.map((m) => m.name)} labels={Object.fromEntries(materials.map((m) => [m.name, `${m.name}  (${m.n})`]))} /></div>
+            {samples.length > 0 && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => downloadCSV('material.csv', samples.map((s) => ({ EN: s.label, description: s.desc, [metric]: s.value })))}><Download size={13} /> CSV</button>}
+          </div>
+          {materials.length === 0 ? <NoData msg="No material is used by two or more experiments yet." />
+            : samples.length === 0 ? <NoData msg={`No ${metric} results for samples using this material.`} />
+              : <SamplesBar data={samples} color={color} metric={metric} benchVal={benchVal} />}
+          <p className="mt-2 text-2xs text-subtle">Every sample whose recipe includes <span className="font-medium text-muted">{material || 'the selected material'}</span>, by {metric}.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className="card p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Average {metric} by {dim === 'project' ? 'work package' : dim === 'method' ? 'synthesis method' : 'researcher'}</h3>
+              {groups.length > 0 && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => downloadCSV('breakdown.csv', groups.map((g) => ({ group: g.label, [`avg_${metric}`]: g.avg, samples: g.n })))}><Download size={13} /> CSV</button>}
+            </div>
+            {groups.length === 0 ? <NoData msg={`No ${metric} results to group yet.`} /> : (
+              <div className="relative h-[420px] w-full">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <BarChart data={groups} margin={{ top: 22, right: 12, bottom: 64, left: 4 }} barCategoryGap="22%">
+                    <CartesianGrid stroke={GRID} vertical={false} />
+                    <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={-22} textAnchor="end" height={70} tickFormatter={truncate} />
+                    <YAxis tick={tickStyle} stroke={AXIS} width={48} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                    <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<BarTip metricLabel={`Avg ${metric}`} />} />
+                    {benchVal != null && <ReferenceLine y={benchVal} stroke="#9AA0A6" strokeDasharray="4 4" label={{ value: `SYNTHETIC ${benchVal}`, position: 'right', style: { fontSize: 10, fill: '#9AA0A6' } }} />}
+                    <Bar dataKey="avg" name={`Avg ${metric}`} fill={color} radius={[5, 5, 0, 0]} maxBarSize={54} cursor="pointer" onClick={(d: any) => setSelGroup(d?.label ?? null)}>
+                      <LabelList dataKey="avg" position="top" style={{ fontSize: 11, fontWeight: 700, fill: color, fontFamily: 'JetBrains Mono, monospace' }} />
+                      <LabelList dataKey="n" position="insideBottom" offset={6} formatter={(v: any) => `n=${v}`} style={{ fontSize: 9, fill: 'rgba(255,255,255,0.9)', fontFamily: 'JetBrains Mono, monospace' }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <ChartWatermark />
+              </div>
+            )}
+            <p className="mt-2 text-2xs text-subtle">Tap a bar to see the individual samples in that group →</p>
+          </div>
+
+          <div className="card p-4">
+            <h3 className="mb-2 text-sm font-semibold">{selGroup ? `Samples in “${selGroup}”` : 'Samples in group'}</h3>
+            {!selGroup ? <NoData msg="Select a group on the left to break it down into individual samples." />
+              : samples.length === 0 ? <NoData msg={`No ${metric} results in this group.`} />
+                : <SamplesBar data={samples} color={color} metric={metric} benchVal={benchVal} />}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SamplesBar({ data, color, metric, benchVal }: { data: { label: string; value: number | null; desc: string }[]; color: string; metric: string; benchVal: number | null }) {
+  return (
+    <div className="relative h-[420px] w-full">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <BarChart data={data} margin={{ top: 22, right: 12, bottom: 54, left: 4 }} barCategoryGap={data.length > 10 ? '14%' : '26%'}>
+          <CartesianGrid stroke={GRID} vertical={false} />
+          <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 6 ? -22 : 0} textAnchor={data.length > 6 ? 'end' : 'middle'} height={data.length > 6 ? 60 : 36} />
+          <YAxis tick={tickStyle} stroke={AXIS} width={48} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+          <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<SampleTip metric={metric} />} />
+          {benchVal != null && <ReferenceLine y={benchVal} stroke="#9AA0A6" strokeDasharray="4 4" label={{ value: `SYNTHETIC ${benchVal}`, position: 'right', style: { fontSize: 10, fill: '#9AA0A6' } }} />}
+          <Bar dataKey="value" name={metric} fill={color} radius={[5, 5, 0, 0]} maxBarSize={54}>
+            {data.length <= 12 && <LabelList dataKey="value" position="top" style={{ fontSize: 11, fontWeight: 700, fill: color, fontFamily: 'JetBrains Mono, monospace' }} />}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <ChartWatermark />
+    </div>
+  )
+}
+function SampleTip({ active, payload, metric }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  return (
+    <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-pop">
+      <div className="data mb-0.5 font-semibold text-ink">{p.label}</div>
+      {p.desc && <div className="mb-1 max-w-[200px] truncate text-muted">{p.desc}</div>}
+      <div><span className="text-subtle">{metric}: </span><span className="data text-ink">{p.value} g/g</span></div>
     </div>
   )
 }
