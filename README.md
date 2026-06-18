@@ -249,3 +249,5 @@ Run **`supabase/migration_v3.sql`** once in the Supabase SQL Editor (safe to re-
 - **Roster visibility.** Approved teammates can now see each other's names/titles (needed for the check-in, calendar, and goals boards). Only admins can change roles/approvals.
 
 **Manager vs admin.** *Admins* (Reza, Fabiola, Amaury) manage accounts and access. *Managers* (Ben, Amaury) approve leave. The two are independent — Ben is a manager but not an admin.
+
+**Series logging (varying factor).** In the new-experiment panel, each material and each process step has a small **vary** button (the *x* icon). Turn it on for the one factor you're testing — say the mass or volume of a material — and enter several values (e.g. 1, 2, 3 g). On submit the app creates a **separate experiment for each value** (consecutive EN numbers), identical apart from that factor, so a whole series goes in with one form. Only one varying factor is allowed per series, and it's available when creating new experiments (not when editing an existing one).

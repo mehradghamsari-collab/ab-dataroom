@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale } from 'lucide-react'
+import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage } from '../lib/types'
 import { useData } from '../context/DataContext'
@@ -13,11 +13,11 @@ import { PROJECTS, projectByCode } from '../lib/projects'
 type Mode = 'view' | 'edit' | 'new'
 let KEY = 0
 const k = () => `r${++KEY}`
-type MatRow = Material & { _k: string }
-type ProcRow = ProcessStep & { _k: string }
+type MatRow = Material & { _k: string; vary?: boolean; values?: string[] }
+type ProcRow = ProcessStep & { _k: string; vary?: boolean; values?: string[] }
 type ResRow = ResultEntry & { _k: string }
-const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage })
-const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage })
+const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, vary: false, values: [] })
+const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage, vary: false, values: [] })
 const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', value: '', value_num: null, comment: '' })
 
 export function ExperimentModal({ open, experiment, initialMode, onClose }: { open: boolean; experiment: FullExperiment | null; initialMode: Mode; onClose: () => void }) {
@@ -235,15 +235,81 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const updProc = (key: string, patch: Partial<ProcRow>) => setProcs((ps) => ps.map((p) => (p._k === key ? { ...p, ...patch } : p)))
   const updRes = (key: string, patch: Partial<ResRow>) => setRes((rs) => rs.map((r) => (r._k === key ? { ...r, ...patch } : r)))
 
+  // Only one varying factor at a time. Turning one on clears the rest and seeds its
+  // values from whatever single value was already typed.
+  const markVary = (kind: 'mat' | 'proc', key: string, on: boolean) => {
+    setMats((ms) => ms.map((m) => {
+      if (kind === 'mat' && m._k === key) {
+        const seed = m.values && m.values.length ? m.values : m.mass_g != null ? [String(m.mass_g)] : []
+        return { ...m, vary: on, values: on ? seed : m.values ?? [] }
+      }
+      return { ...m, vary: false }
+    }))
+    setProcs((ps) => ps.map((p) => {
+      if (kind === 'proc' && p._k === key) {
+        const seed = p.values && p.values.length ? p.values : p.value ? [p.value] : []
+        return { ...p, vary: on, values: on ? seed : p.values ?? [] }
+      }
+      return { ...p, vary: false }
+    }))
+  }
+
+  // active varying factor (new experiments only)
+  const allowVary = !experiment
+  const varyMat = allowVary ? mats.find((m) => m.vary && m.name?.trim() && (m.values?.filter((v) => v.trim()).length ?? 0) > 0) : undefined
+  const varyProc = allowVary && !varyMat ? procs.find((p) => p.vary && (p.process?.trim() || p.measure?.trim()) && (p.values?.filter((v) => v.trim()).length ?? 0) > 0) : undefined
+  const varyValues = (varyMat?.values ?? varyProc?.values ?? []).map((v) => v.trim()).filter(Boolean)
+  const varyCount = varyValues.length
+  const varyLabel = varyMat ? `${varyMat.name} (${varyMat.unit})` : varyProc ? varyProc.measure || varyProc.process || 'process value' : ''
+
   async function save() {
     setBusy(true)
     try {
-      const cleanMats = mats.filter((m) => m.name?.trim()).map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null }))
-      const cleanProcs = procs.filter((p) => p.process?.trim() || p.measure?.trim() || p.value?.trim()).map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
+      const matsFiltered = mats.filter((m) => m.name?.trim())
+      const procsFiltered = procs.filter((p) => p.process?.trim() || p.measure?.trim() || p.value?.trim())
+      const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null }))
+      const cleanProcs = procsFiltered.map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
 
       const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: discontinued ? null : fscMass, crc_mass: discontinued ? null : crcMass, aup_mass: discontinued ? null : aupMass }
 
+      // ----- Varying factor → create a separate experiment per value (new only) -----
+      const vMatIdx = matsFiltered.findIndex((m) => m.vary && m.values?.some((v) => v.trim() !== ''))
+      const vProcIdx = vMatIdx < 0 ? procsFiltered.findIndex((p) => p.vary && p.values?.some((v) => v.trim() !== '')) : -1
+      const series = vMatIdx >= 0 ? matsFiltered[vMatIdx].values! : vProcIdx >= 0 ? procsFiltered[vProcIdx].values! : []
+      const seriesVals = series.map((v) => v.trim()).filter(Boolean)
+
+      if (!experiment && seriesVals.length >= 1 && (vMatIdx >= 0 || vProcIdx >= 0)) {
+        const unit = vMatIdx >= 0 ? matsFiltered[vMatIdx].unit : ''
+        const baseDesc = description?.trim() || ''
+        const createdEns: number[] = []
+        for (const raw of seriesVals) {
+          const matsForThis = cleanMats.map((mm, i) => (i === vMatIdx ? { ...mm, mass_g: parseNum(raw) } : mm))
+          const procsForThis = cleanProcs.map((pp, i) => (i === vProcIdx ? { ...pp, value: raw } : pp))
+          const suffix = vMatIdx >= 0 ? `${raw} ${unit}`.trim() : `${raw}`
+          const desc = baseDesc ? `${baseDesc} — ${suffix}` : `${(cleanMats[vMatIdx]?.name ?? 'run')} ${suffix}`.trim()
+          const { data: enData } = await supabase.rpc('get_next_en')
+          const en = typeof enData === 'number' ? enData : undefined
+          const { data, error } = await supabase.from('experiments').insert({ ...base, description: desc, en, created_by: profile?.id ?? null }).select('id,en').single()
+          if (error) throw error
+          const id = (data as any).id as string
+          if (typeof (data as any).en === 'number') createdEns.push((data as any).en)
+          const ins = await Promise.all([
+            matsForThis.length ? supabase.from('experiment_materials').insert(matsForThis.map((r) => ({ ...r, experiment_id: id }))) : null,
+            procsForThis.length ? supabase.from('experiment_processes').insert(procsForThis.map((r) => ({ ...r, experiment_id: id }))) : null,
+            cleanRes.length ? supabase.from('experiment_results').insert(cleanRes.map((r) => ({ ...r, experiment_id: id }))) : null,
+          ])
+          const e2 = ins.find((r) => r && r.error)?.error
+          if (e2) throw e2
+        }
+        await refetchExperiments()
+        const range = createdEns.length ? (createdEns.length > 1 ? ` (EN${Math.min(...createdEns)}–EN${Math.max(...createdEns)})` : ` (EN${createdEns[0]})`) : ''
+        toast(`Created ${seriesVals.length} experiments${range}`)
+        onSaved()
+        return
+      }
+
+      // ----- Single experiment (create or edit) -----
       let expId = experiment?.id
       if (experiment) {
         const { error } = await supabase.from('experiments').update(base).eq('id', experiment.id)
@@ -324,18 +390,34 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
         <Toggle on={discontinued} onChange={setDiscontinued} icon={<Ban size={15} />} label="Discontinued" hint="No results" tone="muted" />
       </div>
 
+      {allowVary && varyCount >= 1 && (
+        <div className="flex items-start gap-2.5 rounded-xl border px-4 py-3" style={{ borderColor: '#6C5CE055', background: '#6C5CE012' }}>
+          <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white" style={{ background: '#6C5CE0' }}><Variable size={15} /></span>
+          <div className="text-sm">
+            <span className="font-semibold text-ink">Series mode · varying {varyLabel}</span>
+            <p className="mt-0.5 text-muted">Submitting creates <span className="font-semibold text-ink">{varyCount}</span> separate experiment{varyCount > 1 ? 's' : ''} — one per value ({varyValues.join(', ')}), identical apart from this factor.</p>
+          </div>
+        </div>
+      )}
+
       {stages.map((st) => (
         <div key={st.label || 'single'} className={cx(twoStep && 'rounded-xl border p-3.5', twoStep && (st.stage === 'surface' ? 'border-orange/30 bg-orange-tint/30' : 'border-brand/25 bg-brand-tint/25'))}>
           {st.label && <div className={cx('mb-3 flex items-center gap-2 text-sm font-semibold', st.stage === 'surface' ? 'text-orange-dark' : 'text-brand-dark')}><Layers size={14} />{st.label}</div>}
           <RowSection icon={<Beaker size={15} />} title="Materials" tone="teal" onAdd={() => setMats((m) => [...m, blankMat(st.stage)])} addLabel="Add material">
             {mats.filter((m) => (m.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No materials yet.</p>}
             {mats.filter((m) => (m.stage ?? null) === st.stage).map((m) => (
-              <div key={m._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_92px_auto]">
-                <Combobox value={m.name || ''} onChange={(v) => updMat(m._k, { name: v })} options={chemNames} onCreate={(v) => addChemicalByName(v)} placeholder="Chemical" createLabel={(v) => `Add “${v}” to chemicals`} />
-                <input className="field data" type="number" step="any" inputMode="decimal" placeholder="Amount" value={m.mass_g ?? ''} onChange={(e) => updMat(m._k, { mass_g: e.target.value === '' ? null : parseFloat(e.target.value) })} />
-                <UnitToggle value={m.unit} onChange={(u) => updMat(m._k, { unit: u })} />
-                <input className="field data" placeholder="Ratio" value={m.ratio ?? ''} onChange={(e) => updMat(m._k, { ratio: e.target.value })} />
-                <RemoveBtn onClick={() => setMats((ms) => ms.filter((x) => x._k !== m._k))} />
+              <div key={m._k} className="space-y-2">
+                <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_92px_auto]">
+                  <Combobox value={m.name || ''} onChange={(v) => updMat(m._k, { name: v })} options={chemNames} onCreate={(v) => addChemicalByName(v)} placeholder="Chemical" createLabel={(v) => `Add “${v}” to chemicals`} />
+                  <input className="field data" type="number" step="any" inputMode="decimal" placeholder={m.vary ? 'varies ↓' : 'Amount'} disabled={!!m.vary} value={m.vary ? '' : m.mass_g ?? ''} onChange={(e) => updMat(m._k, { mass_g: e.target.value === '' ? null : parseFloat(e.target.value) })} />
+                  <UnitToggle value={m.unit} onChange={(u) => updMat(m._k, { unit: u })} />
+                  <input className="field data" placeholder="Ratio" value={m.ratio ?? ''} onChange={(e) => updMat(m._k, { ratio: e.target.value })} />
+                  <div className="flex items-center gap-1">
+                    {allowVary && <VaryToggle on={!!m.vary} onClick={() => markVary('mat', m._k, !m.vary)} />}
+                    <RemoveBtn onClick={() => setMats((ms) => ms.filter((x) => x._k !== m._k))} />
+                  </div>
+                </div>
+                {m.vary && <VaryValues values={m.values ?? []} unitLabel={m.unit} onChange={(vals) => updMat(m._k, { values: vals })} />}
               </div>
             ))}
           </RowSection>
@@ -344,11 +426,17 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
             <RowSection icon={<Cog size={15} />} title="Process" tone="navy" onAdd={() => setProcs((p) => [...p, blankProc(st.stage)])} addLabel="Add step">
               {procs.filter((p) => (p.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No steps yet.</p>}
               {procs.filter((p) => (p.stage ?? null) === st.stage).map((p) => (
-                <div key={p._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_120px_auto]">
-                  <Combobox value={p.process || ''} onChange={(v) => updProc(p._k, { process: v })} options={procNames} onCreate={(v) => addRef('process_names', v)} placeholder="Process" createLabel={(v) => `Add “${v}”`} />
-                  <Combobox value={p.measure || ''} onChange={(v) => updProc(p._k, { measure: v })} options={measureNames} onCreate={(v) => addRef('measure_types', v)} placeholder="Measure" createLabel={(v) => `Add “${v}”`} />
-                  <input className="field data" placeholder="Value" value={p.value ?? ''} onChange={(e) => updProc(p._k, { value: e.target.value })} />
-                  <RemoveBtn onClick={() => setProcs((ps) => ps.filter((x) => x._k !== p._k))} />
+                <div key={p._k} className="space-y-2">
+                  <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_120px_auto]">
+                    <Combobox value={p.process || ''} onChange={(v) => updProc(p._k, { process: v })} options={procNames} onCreate={(v) => addRef('process_names', v)} placeholder="Process" createLabel={(v) => `Add “${v}”`} />
+                    <Combobox value={p.measure || ''} onChange={(v) => updProc(p._k, { measure: v })} options={measureNames} onCreate={(v) => addRef('measure_types', v)} placeholder="Measure" createLabel={(v) => `Add “${v}”`} />
+                    <input className="field data" placeholder={p.vary ? 'varies ↓' : 'Value'} disabled={!!p.vary} value={p.vary ? '' : p.value ?? ''} onChange={(e) => updProc(p._k, { value: e.target.value })} />
+                    <div className="flex items-center gap-1">
+                      {allowVary && <VaryToggle on={!!p.vary} onClick={() => markVary('proc', p._k, !p.vary)} />}
+                      <RemoveBtn onClick={() => setProcs((ps) => ps.filter((x) => x._k !== p._k))} />
+                    </div>
+                  </div>
+                  {p.vary && <VaryValues values={p.values ?? []} onChange={(vals) => updProc(p._k, { values: vals })} />}
                 </div>
               ))}
             </RowSection>
@@ -414,7 +502,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
         </div>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button className="btn-primary" onClick={save} disabled={busy}>{busy ? <Spinner className="h-4 w-4" /> : experiment ? 'Save changes' : 'Create experiment'}</button>
+          <button className="btn-primary" onClick={save} disabled={busy}>{busy ? <Spinner className="h-4 w-4" /> : experiment ? 'Save changes' : varyCount >= 2 ? `Create ${varyCount} experiments` : 'Create experiment'}</button>
         </div>
       </div>
     </div>
@@ -442,6 +530,39 @@ function Toggle({ on, onChange, icon, label, hint, tone }: { on: boolean; onChan
     </button>
   )
 }
+function VaryToggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} title="Vary this value across a set of experiments" aria-label="Vary this value" className={cx('grid h-9 w-9 place-items-center rounded-lg border transition', on ? 'border-transparent text-white shadow-card' : 'border-line text-subtle hover:bg-black/[0.03]')} style={on ? { background: '#6C5CE0' } : undefined}>
+      <Variable size={15} />
+    </button>
+  )
+}
+
+function VaryValues({ values, unitLabel, onChange }: { values: string[]; unitLabel?: string; onChange: (v: string[]) => void }) {
+  const [draft, setDraft] = useState('')
+  const add = () => {
+    const parts = draft.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
+    if (parts.length) onChange([...values, ...parts])
+    setDraft('')
+  }
+  return (
+    <div className="rounded-lg border p-2.5" style={{ borderColor: '#6C5CE055', background: '#6C5CE00D' }}>
+      <div className="mb-1.5 flex items-center gap-1.5 text-2xs font-semibold" style={{ color: '#5A4BD0' }}><Variable size={12} /> Varying values{unitLabel ? ` (${unitLabel})` : ''}</div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {values.map((v, i) => (
+          <span key={i} className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold text-white" style={{ background: '#6C5CE0' }}>
+            <span className="data">{v}{unitLabel ? ` ${unitLabel}` : ''}</span>
+            <button type="button" onClick={() => onChange(values.filter((_, j) => j !== i))} className="opacity-80 transition hover:opacity-100"><X size={11} /></button>
+          </span>
+        ))}
+        <input className="field data h-8 w-28 flex-none" value={draft} inputMode="decimal" placeholder="add value…" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }} />
+        <button type="button" onClick={add} className="btn-ghost h-8 px-2 text-xs" style={{ color: '#5A4BD0' }}><Plus size={13} /> Add</button>
+      </div>
+      <p className="mt-1.5 text-2xs text-subtle">{values.length > 0 ? `${values.length} value${values.length > 1 ? 's' : ''} → ${values.length} experiment${values.length > 1 ? 's' : ''}. Press Enter or Add for each.` : 'Type a value and press Enter. Each one becomes its own experiment.'}</p>
+    </div>
+  )
+}
+
 function AbsInput({ mkey, reading, setReading, compute, label, caption, hint }: { mkey: 'FSC' | 'CRC' | 'AUP'; reading: number | null; setReading: (v: number | null) => void; compute: (n: number) => number; label: string; caption: string; hint: string }) {
   const color = METRIC_COLOR[mkey]
   const v = reading == null || Number.isNaN(reading) ? null : compute(reading)
