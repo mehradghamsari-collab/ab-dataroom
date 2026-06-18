@@ -17,6 +17,26 @@ export const METRICS: MetricDef[] = [
 
 export const METRIC_COLOR: Record<string, string> = { FSC: '#0E8A94', CRC: '#6C5CE0', AUP: '#FF4700' }
 
+// ---- Absorbency calculated from researcher mass readings ----
+// Researchers record the raw mass of the sample after each test; the app converts
+// to g absorbed / g dry gel using the lab's tare + dry-mass constants.
+export const ABS_CONST = {
+  fsc: { tare: 2, dry: 0.25 },   // FSC = ((swollen − tare) − dry) / dry
+  crc: { tare: 0.6, dry: 0.25 }, // CRC = (after-centrifuge − tare) / dry
+  aup: { tare: 0.85, dry: 0.85 }, // AUP = (after-AUP − tare) / dry
+}
+const round1 = (x: number) => Math.round(x * 10) / 10
+export function computeFSC(swollenMass: number): number { return round1(((swollenMass - ABS_CONST.fsc.tare) - ABS_CONST.fsc.dry) / ABS_CONST.fsc.dry) }
+export function computeCRC(centrifugeMass: number): number { return round1((centrifugeMass - ABS_CONST.crc.tare) / ABS_CONST.crc.dry) }
+export function computeAUP(aupMass: number): number { return round1((aupMass - ABS_CONST.aup.tare) / ABS_CONST.aup.dry) }
+export function computeMetric(key: MetricDef['key'], reading: number): number {
+  return key === 'FSC' ? computeFSC(reading) : key === 'CRC' ? computeCRC(reading) : computeAUP(reading)
+}
+function rawReading(exp: FullExperiment, key: MetricDef['key']): number | null {
+  const v = key === 'FSC' ? exp.fsc_mass : key === 'CRC' ? exp.crc_mass : exp.aup_mass
+  return v === null || v === undefined ? null : v
+}
+
 function numFrom(r: ResultEntry): number | null {
   if (r.value_num !== null && r.value_num !== undefined) return r.value_num
   if (r.value === null || r.value === undefined || r.value === '') return null
@@ -24,9 +44,11 @@ function numFrom(r: ResultEntry): number | null {
   return m ? parseFloat(m[0]) : null
 }
 
-// Best numeric value of a metric for an experiment: prefer exact canonical name,
-// otherwise the first matching result that has a number.
+// Best numeric value of a metric for an experiment: prefer a researcher mass reading
+// (auto-calculated), then exact canonical name, otherwise the first matching result.
 export function metricValue(exp: FullExperiment, key: MetricDef['key']): number | null {
+  const reading = rawReading(exp, key)
+  if (reading !== null) return computeMetric(key, reading)
   const def = METRICS.find((m) => m.key === key)!
   const exact = exp.experiment_results.find((r) => r.result_type === def.full)
   if (exact) {

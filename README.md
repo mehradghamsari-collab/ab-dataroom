@@ -183,3 +183,51 @@ In **AI reports** you can plug in your own model and generate a **lab report** f
 - Access is gated by **Supabase Auth** plus **Row‑Level Security**: only approved accounts can read, and only admins can do admin actions. These rules are enforced on the server, so they can't be bypassed from the browser.
 - The only things kept in your browser are your UI preferences, the "last backup" date, and (if you use it) your personal AI key.
 - For maximum security we recommend turning email confirmation back on (or moving to magic‑link / password login) once everyone has joined — see the note in the login section above.
+
+---
+
+# v2.2 — Named team, Word/PowerPoint, polished backup
+
+## ⚠️ One‑time database update (required)
+
+Open Supabase → **SQL Editor** and run **`supabase/migration_v2_2.sql`** once (safe to re‑run).
+- If you already ran `migration_v2.sql`, you only need this new one.
+- Fresh installs that run `schema.sql` already include everything.
+
+This adds a **job title** to profiles and seeds the team so each person is recognised the moment they sign in.
+
+## Your team (pre‑set)
+
+Everyone signs in with **their own email** (passwordless — see the login section). On first sign‑in they're automatically approved with the right name and title:
+
+| Email | Name | Title | Access |
+|---|---|---|---|
+| reza@absmartmaterials.com | Reza | Researcher | Admin |
+| giulia@absmartmaterials.com | Giulia | Researcher | Member |
+| ben@absmartmaterials.com | Ben | Researcher | Member |
+| mantas@absmartmaterials.com | Mantas | Researcher | Member |
+| fabiola@absmartmaterials.com | Fabiola | Associate Founder | Admin |
+| amaury@absmartmaterials.com | Amaury | Founder | Admin |
+
+Two things to check:
+- **Amaury's email is assumed to be `amaury@absmartmaterials.com`.** If it's different, change it in the `insert into public.allowed_emails …` block of `migration_v2_2.sql` before running, or just add the correct email in **Team & access** afterwards.
+- **The two founders are set as Admins** (they can manage the team). To make them regular members, change `make_admin` to `false` for those rows, or flip their role in **Team & access**.
+
+## Reports & slides (new tab)
+
+The old "AI reports" tab is now **Reports & slides**, with three tools:
+
+- **Lab report (Word)** — pick any experiments (or use *This week* / *Top performers* / *All with results*) and download a formatted **`.docx`**: a section per experiment with metrics, formulation and process tables (split by Step 1/Step 2 for two‑step samples), results, estimated cost, and recommended next steps.
+- **Slides (PowerPoint)** — the same picker produces a **`.pptx`** with a title slide and **one slide per experiment**: *what was done · results · next step*, in the brand colours.
+- **AI draft** — the optional bring‑your‑own‑key drafting from before.
+
+The Word and PowerPoint files are built **in your browser and need no AI key** — they work offline.
+
+## Polished Excel backup
+
+The weekly backup (Overview page) is now a fully styled workbook with a navy title banner, coloured headers, zebra striping, frozen headers and filters, across seven sheets: **Experiments, Formulations, Processes, Results, Chemicals, Benchmarks, About**. Formulations and processes are now included in full.
+
+## Look & feel
+
+- More colour throughout, drawn from the logo — pastel action buttons, colour‑coded work packages, and tinted Step 1 (teal) / Step 2 (orange) blocks in the experiment form.
+- Charts now render reliably on phones, including **Compare samples**.

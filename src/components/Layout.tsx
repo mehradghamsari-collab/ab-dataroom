@@ -66,7 +66,7 @@ export function Layout() {
         <OwnerAvatar name={profile?.full_name || profile?.email || '?'} size={30} />
         <div className="min-w-0 leading-tight">
           <div className="truncate text-sm font-medium text-white">{profile?.full_name || profile?.email}</div>
-          <div className="truncate text-2xs capitalize text-white/45">{profile?.role}</div>
+          <div className="truncate text-2xs text-white/45">{profile?.title || (profile?.role === 'admin' ? 'Admin' : 'Member')}</div>
         </div>
       </div>
       <button

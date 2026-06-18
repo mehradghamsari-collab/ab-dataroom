@@ -34,17 +34,25 @@
            transition-all duration-150 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none select-none;
   }
   .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark hover:shadow-lift;
+    @apply btn bg-gradient-to-br from-brand to-brand-dark text-white hover:shadow-lift hover:brightness-[1.06];
   }
   .btn-ghost {
     @apply btn bg-transparent text-ink hover:bg-black/[0.04];
   }
   .btn-outline {
-    @apply btn border border-line bg-surface text-ink hover:bg-black/[0.03] hover:border-subtle;
+    @apply btn border border-line bg-surface text-ink hover:bg-brand-tint/50 hover:border-brand-ring;
   }
   .btn-danger {
     @apply btn bg-danger/10 text-danger hover:bg-danger/20;
   }
+  /* Pastel "soft" buttons inspired by the logo palette */
+  .btn-soft {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-all active:scale-[0.97] disabled:opacity-50;
+  }
+  .btn-soft-teal { @apply btn-soft bg-brand-tint text-brand-dark hover:bg-[#D3EEF0]; }
+  .btn-soft-navy { @apply btn-soft bg-[#E7ECF3] text-navy hover:bg-[#DCE5F0]; }
+  .btn-soft-orange { @apply btn-soft bg-orange-tint text-orange-dark hover:bg-[#FFDCCC]; }
+  .btn-soft-violet { @apply btn-soft bg-[#ECEAFB] text-[#5A4BD0] hover:bg-[#E1DDF7]; }
   .field {
     @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink
            placeholder:text-subtle outline-none transition

@@ -167,7 +167,7 @@ function PersonCell({ p, isMe }: { p: Profile; isMe?: boolean }) {
         <div className="truncate text-sm font-medium text-ink">
           {p.full_name || p.email.split('@')[0]} {isMe && <span className="text-2xs font-normal text-subtle">(you)</span>}
         </div>
-        <div className="data truncate text-xs text-subtle">{p.email}</div>
+        <div className="data truncate text-xs text-subtle">{p.title ? <span className="not-italic">{p.title} · </span> : ''}{p.email}</div>
       </div>
     </div>
   )

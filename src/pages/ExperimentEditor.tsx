@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet } from 'lucide-react'
+import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage } from '../lib/types'
 import { useData } from '../context/DataContext'
@@ -7,7 +7,7 @@ import { useAuth } from '../context/AuthContext'
 import { Modal, Spinner, TypePill, OwnerAvatar, MetricPill, useToast, useConfirm } from '../components/ui'
 import { Combobox } from '../components/Combobox'
 import { cx, fmtDate, parseNum, todayISO } from '../lib/utils'
-import { sampleMetrics, formulationCost } from '../lib/metrics'
+import { sampleMetrics, formulationCost, computeFSC, computeCRC, computeAUP, ABS_CONST, METRIC_COLOR } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
 
 type Mode = 'view' | 'edit' | 'new'
@@ -185,6 +185,9 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
   const [twoStep, setTwoStep] = useState(experiment?.is_two_step ?? false)
   const [discontinued, setDiscontinued] = useState(experiment?.discontinued ?? false)
   const [extraCost, setExtraCost] = useState<number | null>(experiment?.extra_cost ?? null)
+  const [fscMass, setFscMass] = useState<number | null>(experiment?.fsc_mass ?? null)
+  const [crcMass, setCrcMass] = useState<number | null>(experiment?.crc_mass ?? null)
+  const [aupMass, setAupMass] = useState<number | null>(experiment?.aup_mass ?? null)
 
   const [mats, setMats] = useState<MatRow[]>(
     experiment ? (experiment.experiment_materials.map((m) => ({ ...m, _k: k(), unit: (m as any).unit ?? 'g' })) as MatRow[]) : [blankMat(null)],
@@ -234,7 +237,7 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
       const cleanProcs = procs.filter((p) => p.process?.trim() || p.measure?.trim() || p.value?.trim()).map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
 
-      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null }
+      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: discontinued ? null : fscMass, crc_mass: discontinued ? null : crcMass, aup_mass: discontinued ? null : aupMass }
 
       let expId = experiment?.id
       if (experiment) {
@@ -282,13 +285,6 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
         <div><label className="label">Owner</label><Combobox value={owner} onChange={setOwner} options={owners} allowFreeText placeholder="Who ran it" onCreate={(v) => setOwner(v)} createLabel={(v) => `Use “${v}”`} /></div>
         <div><label className="label">Experiment type</label><Combobox value={type} onChange={setType} options={typeNames} onCreate={(v) => addRef('experiment_types', v)} placeholder="Select type" /></div>
         <div>
-          <label className="label">Work package</label>
-          <select className="field cursor-pointer" value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="">— Select project —</option>
-            {PROJECTS.map((p) => <option key={p.code} value={p.code}>{p.label}</option>)}
-          </select>
-        </div>
-        <div>
           <label className="label">Repeat?</label>
           <div className="flex gap-1.5">{['Yes', 'No'].map((opt) => (
             <button key={opt} type="button" onClick={() => setRepeat(repeat === opt ? '' : opt)} className={cx('flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition', repeat === opt ? 'border-brand bg-brand-tint text-brand-dark' : 'border-line bg-surface text-muted hover:bg-black/[0.03]')}>{opt}</button>
@@ -297,15 +293,29 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
         <div className="sm:col-span-2"><label className="label">Description</label><input className="field" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short label, e.g. MD4-1" /></div>
       </div>
 
+      <div>
+        <label className="label">Work package</label>
+        <div className="flex flex-wrap gap-1.5">
+          {PROJECTS.map((p) => {
+            const on = project === p.code
+            return (
+              <button key={p.code} type="button" onClick={() => setProject(on ? '' : p.code)} className={cx('rounded-full border px-3 py-1.5 text-xs font-medium transition-all', on ? 'text-white shadow-card' : 'border-line bg-paper text-muted hover:bg-black/[0.03]')} style={on ? { background: p.color, borderColor: p.color } : undefined}>
+                {p.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-2.5">
         <Toggle on={twoStep} onChange={toggleTwoStep} icon={<Layers size={15} />} label="Two-step sample" hint="Bulk + surface" />
         <Toggle on={discontinued} onChange={setDiscontinued} icon={<Ban size={15} />} label="Discontinued" hint="No results" tone="muted" />
       </div>
 
       {stages.map((st) => (
-        <div key={st.label || 'single'} className={cx(twoStep && 'rounded-xl border border-line bg-paper/60 p-3.5')}>
-          {st.label && <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-navy"><Layers size={14} className="text-brand" />{st.label}</div>}
-          <RowSection icon={<Beaker size={15} />} title="Materials" onAdd={() => setMats((m) => [...m, blankMat(st.stage)])} addLabel="Add material">
+        <div key={st.label || 'single'} className={cx(twoStep && 'rounded-xl border p-3.5', twoStep && (st.stage === 'surface' ? 'border-orange/30 bg-orange-tint/30' : 'border-brand/25 bg-brand-tint/25'))}>
+          {st.label && <div className={cx('mb-3 flex items-center gap-2 text-sm font-semibold', st.stage === 'surface' ? 'text-orange-dark' : 'text-brand-dark')}><Layers size={14} />{st.label}</div>}
+          <RowSection icon={<Beaker size={15} />} title="Materials" tone="teal" onAdd={() => setMats((m) => [...m, blankMat(st.stage)])} addLabel="Add material">
             {mats.filter((m) => (m.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No materials yet.</p>}
             {mats.filter((m) => (m.stage ?? null) === st.stage).map((m) => (
               <div key={m._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_92px_auto]">
@@ -319,7 +329,7 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
           </RowSection>
 
           <div className="mt-4">
-            <RowSection icon={<Cog size={15} />} title="Process" onAdd={() => setProcs((p) => [...p, blankProc(st.stage)])} addLabel="Add step">
+            <RowSection icon={<Cog size={15} />} title="Process" tone="navy" onAdd={() => setProcs((p) => [...p, blankProc(st.stage)])} addLabel="Add step">
               {procs.filter((p) => (p.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No steps yet.</p>}
               {procs.filter((p) => (p.stage ?? null) === st.stage).map((p) => (
                 <div key={p._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_120px_auto]">
@@ -335,17 +345,29 @@ function ExperimentForm({ experiment, onCancel, onSaved }: { experiment: FullExp
       ))}
 
       {!discontinued && (
-        <RowSection icon={<Gauge size={15} />} title="Results" onAdd={() => setRes((r) => [...r, blankRes()])} addLabel="Add result">
-          {res.length === 0 && <p className="text-sm text-subtle">No results yet — add them now or later.</p>}
-          {res.map((r) => (
-            <div key={r._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.2fr)_120px_minmax(0,1fr)_auto]">
-              <Combobox value={r.result_type || ''} onChange={(v) => updRes(r._k, { result_type: v })} options={resultNames} onCreate={(v) => addRef('result_types', v)} placeholder="Result type" createLabel={(v) => `Add “${v}”`} />
-              <input className="field data" placeholder="Value" value={r.value ?? ''} onChange={(e) => updRes(r._k, { value: e.target.value })} />
-              <input className="field" placeholder="Comment (optional)" value={r.comment ?? ''} onChange={(e) => updRes(r._k, { comment: e.target.value })} />
-              <RemoveBtn onClick={() => setRes((rs) => rs.filter((x) => x._k !== r._k))} />
+        <>
+          <div className="rounded-xl border border-orange/25 bg-orange-tint/25 p-3.5">
+            <div className="mb-1 flex items-center gap-2"><Scale size={15} className="text-orange" /><h3 className="text-sm font-semibold">Absorbency <span className="font-normal text-subtle">· auto-calculated</span></h3></div>
+            <p className="mb-3 text-xs text-muted">Enter the measured sample mass after each test — the app converts to g absorbed per g dry gel.</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <AbsInput mkey="FSC" reading={fscMass} setReading={setFscMass} compute={computeFSC} label="FSC" caption="Mass of swollen gel (g)" hint={`= ((mass − ${ABS_CONST.fsc.tare}) − ${ABS_CONST.fsc.dry}) / ${ABS_CONST.fsc.dry}`} />
+              <AbsInput mkey="CRC" reading={crcMass} setReading={setCrcMass} compute={computeCRC} label="CRC" caption="Mass after centrifuge (g)" hint={`= (mass − ${ABS_CONST.crc.tare}) / ${ABS_CONST.crc.dry}`} />
+              <AbsInput mkey="AUP" reading={aupMass} setReading={setAupMass} compute={computeAUP} label="AUP" caption="Mass after AUP test (g)" hint={`= (mass − ${ABS_CONST.aup.tare}) / ${ABS_CONST.aup.dry}`} />
             </div>
-          ))}
-        </RowSection>
+          </div>
+
+          <RowSection icon={<Gauge size={15} />} title="Other results" tone="violet" onAdd={() => setRes((r) => [...r, blankRes()])} addLabel="Add result">
+            {res.length === 0 && <p className="text-sm text-subtle">Optional — add any other measurements (pH, gel fraction, notes…).</p>}
+            {res.map((r) => (
+              <div key={r._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.2fr)_120px_minmax(0,1fr)_auto]">
+                <Combobox value={r.result_type || ''} onChange={(v) => updRes(r._k, { result_type: v })} options={resultNames} onCreate={(v) => addRef('result_types', v)} placeholder="Result type" createLabel={(v) => `Add “${v}”`} />
+                <input className="field data" placeholder="Value" value={r.value ?? ''} onChange={(e) => updRes(r._k, { value: e.target.value })} />
+                <input className="field" placeholder="Comment (optional)" value={r.comment ?? ''} onChange={(e) => updRes(r._k, { comment: e.target.value })} />
+                <RemoveBtn onClick={() => setRes((rs) => rs.filter((x) => x._k !== r._k))} />
+              </div>
+            ))}
+          </RowSection>
+        </>
       )}
 
       <div className="rounded-xl border border-line bg-paper/60 p-3.5">
@@ -408,12 +430,30 @@ function Toggle({ on, onChange, icon, label, hint, tone }: { on: boolean; onChan
     </button>
   )
 }
-function RowSection({ icon, title, onAdd, addLabel, children }: { icon: React.ReactNode; title: string; onAdd: () => void; addLabel: string; children: React.ReactNode }) {
+function AbsInput({ mkey, reading, setReading, compute, label, caption, hint }: { mkey: 'FSC' | 'CRC' | 'AUP'; reading: number | null; setReading: (v: number | null) => void; compute: (n: number) => number; label: string; caption: string; hint: string }) {
+  const color = METRIC_COLOR[mkey]
+  const v = reading == null || Number.isNaN(reading) ? null : compute(reading)
+  return (
+    <div className="rounded-lg border border-line bg-surface p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold tracking-wide" style={{ color }}>{label}</span>
+        <span className="data text-sm font-bold tabular-nums" style={{ color }}>{v != null ? `${v} g/g` : '—'}</span>
+      </div>
+      <input className="field data mt-2" type="number" step="any" inputMode="decimal" placeholder="mass (g)" value={reading ?? ''} onChange={(e) => setReading(e.target.value === '' ? null : parseFloat(e.target.value))} />
+      <p className="mt-1.5 text-2xs leading-tight text-subtle">{caption}</p>
+      <p className="data text-[10px] leading-tight text-subtle/80">{hint}</p>
+    </div>
+  )
+}
+
+function RowSection({ icon, title, onAdd, addLabel, tone = 'teal', children }: { icon: React.ReactNode; title: string; onAdd: () => void; addLabel: string; tone?: 'teal' | 'navy' | 'orange' | 'violet'; children: React.ReactNode }) {
+  const iconColor = tone === 'navy' ? 'text-navy' : tone === 'orange' ? 'text-orange' : tone === 'violet' ? 'text-[#5A4BD0]' : 'text-brand'
+  const addClass = tone === 'navy' ? 'btn-soft-navy' : tone === 'orange' ? 'btn-soft-orange' : tone === 'violet' ? 'btn-soft-violet' : 'btn-soft-teal'
   return (
     <div>
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-2"><span className="text-brand">{icon}</span><h3 className="text-sm font-semibold">{title}</h3></div>
-        <button type="button" className="btn-ghost h-8 text-brand-dark" onClick={onAdd}><Plus size={15} /> {addLabel}</button>
+        <div className="flex items-center gap-2"><span className={iconColor}>{icon}</span><h3 className="text-sm font-semibold">{title}</h3></div>
+        <button type="button" className={cx(addClass, 'h-8 px-2.5')} onClick={onAdd}><Plus size={15} /> {addLabel}</button>
       </div>
       <div className="space-y-2">{children}</div>
     </div>

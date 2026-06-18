@@ -5,6 +5,7 @@ export interface Profile {
   id: string
   email: string
   full_name: string | null
+  title: string | null
   role: Role
   status: Status
   created_at: string
@@ -57,6 +58,9 @@ export interface Experiment {
   discontinued: boolean
   extra_cost: number | null
   project: string | null
+  fsc_mass: number | null
+  crc_mass: number | null
+  aup_mass: number | null
   created_at: string
   updated_at: string
   created_by: string | null

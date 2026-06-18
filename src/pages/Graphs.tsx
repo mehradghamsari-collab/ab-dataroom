@@ -83,9 +83,9 @@ function CompareTab() {
         ) : metricKeys.length === 0 ? (
           <NoData msg="Turn on at least one metric (FSC, CRC, AUP)." />
         ) : (
-          <div className="relative min-h-[440px]">
-            <ResponsiveContainer width="100%" height={Math.max(440, 0)}>
-              <BarChart data={data} margin={{ top: 24, right: 16, bottom: 40, left: 8 }} barGap={4} barCategoryGap={data.length > 8 ? '18%' : '28%'}>
+          <div className="relative h-[420px] w-full sm:h-[460px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={data} margin={{ top: 24, right: 12, bottom: 40, left: 4 }} barGap={3} barCategoryGap={data.length > 8 ? '16%' : '26%'}>
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 6 ? -20 : 0} textAnchor={data.length > 6 ? 'end' : 'middle'} height={data.length > 6 ? 56 : 36} />
                 <YAxis tick={tickStyle} stroke={AXIS} width={52} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
@@ -199,8 +199,8 @@ function CrcAupMatrix() {
         <Segmented size="sm" value={colorBy} onChange={(v) => setColorBy(v as 'type' | 'owner')} options={[{ value: 'type', label: 'By type' }, { value: 'owner', label: 'By owner' }]} />
       </div>
       {pts.length === 0 ? <NoData msg="No experiments have both CRC and AUP recorded yet." /> : (
-        <div className="relative min-h-[460px]">
-          <ResponsiveContainer width="100%" height={460}>
+        <div className="relative h-[440px] w-full sm:h-[480px]">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <ScatterChart margin={{ top: 12, right: 18, bottom: 36, left: 8 }}>
               <CartesianGrid stroke={GRID} />
               <XAxis type="number" dataKey="x" name="CRC" tick={tickStyle} stroke={AXIS} label={{ value: 'CRC (g/g)', position: 'insideBottom', offset: -16, style: { fontSize: 12, fill: '#6C7077', fontWeight: 600 } }} />
@@ -260,8 +260,8 @@ function ParityMatrix() {
         <NoData msg="No experiments can be costed against this benchmark yet. Set chemical prices (Library → Chemicals) and make sure the benchmark has a price and this metric." />
       ) : (
         <>
-          <div className="relative min-h-[460px]">
-            <ResponsiveContainer width="100%" height={460}>
+          <div className="relative h-[440px] w-full sm:h-[480px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <ScatterChart margin={{ top: 12, right: 18, bottom: 36, left: 8 }}>
                 {/* winning quadrant: cheaper (x<100) and better (y>100) */}
                 <ReferenceArea x1={0} x2={100} y1={100} y2={100000} fill="#0E8A94" fillOpacity={0.06} />
@@ -491,8 +491,8 @@ function ChartFrame({ children, onExport, count }: { children: React.ReactElemen
         <span className="text-2xs uppercase tracking-wider text-subtle"><span className="data text-muted">{count}</span> points</span>
         <button className="btn-ghost h-7 text-xs text-muted" onClick={onExport}><Download size={13} /> CSV</button>
       </div>
-      <div className="relative min-h-[400px] flex-1">
-        <ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer>
+      <div className="relative h-[400px] w-full flex-1 sm:h-[440px]">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0}>{children}</ResponsiveContainer>
         <ChartWatermark />
       </div>
     </div>
