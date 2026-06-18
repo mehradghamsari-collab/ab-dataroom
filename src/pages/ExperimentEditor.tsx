@@ -193,6 +193,10 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const [fscMass, setFscMass] = useState<number | null>(experiment?.fsc_mass ?? null)
   const [crcMass, setCrcMass] = useState<number | null>(experiment?.crc_mass ?? null)
   const [aupMass, setAupMass] = useState<number | null>(experiment?.aup_mass ?? null)
+  // per-sample absorbency readings for a varying series, keyed by the varying value
+  const [seriesReadings, setSeriesReadings] = useState<Record<string, { fsc: string; crc: string; aup: string }>>({})
+  const updSeries = (val: string, field: 'fsc' | 'crc' | 'aup', v: string) =>
+    setSeriesReadings((prev) => ({ ...prev, [val]: { ...(prev[val] ?? { fsc: '', crc: '', aup: '' }), [field]: v } }))
 
   const [mats, setMats] = useState<MatRow[]>(
     experiment ? (experiment.experiment_materials.map((m) => ({ ...m, _k: k(), unit: (m as any).unit ?? 'g' })) as MatRow[]) : [blankMat(null)],
@@ -260,6 +264,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const varyProc = allowVary && !varyMat ? procs.find((p) => p.vary && (p.process?.trim() || p.measure?.trim()) && (p.values?.filter((v) => v.trim()).length ?? 0) > 0) : undefined
   const varyValues = (varyMat?.values ?? varyProc?.values ?? []).map((v) => v.trim()).filter(Boolean)
   const varyCount = varyValues.length
+  const varyUnit = varyMat?.unit ?? ''
   const varyLabel = varyMat ? `${varyMat.name} (${varyMat.unit})` : varyProc ? varyProc.measure || varyProc.process || 'process value' : ''
 
   async function save() {
@@ -290,7 +295,15 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
           const desc = baseDesc ? `${baseDesc} — ${suffix}` : `${(cleanMats[vMatIdx]?.name ?? 'run')} ${suffix}`.trim()
           const { data: enData } = await supabase.rpc('get_next_en')
           const en = typeof enData === 'number' ? enData : undefined
-          const { data, error } = await supabase.from('experiments').insert({ ...base, description: desc, en, created_by: profile?.id ?? null }).select('id,en').single()
+          const rdg = seriesReadings[raw] ?? { fsc: '', crc: '', aup: '' }
+          const readingNum = (s: string) => (s.trim() === '' ? null : parseNum(s))
+          const expRow = {
+            ...base, description: desc, en, created_by: profile?.id ?? null,
+            fsc_mass: discontinued ? null : readingNum(rdg.fsc),
+            crc_mass: discontinued ? null : readingNum(rdg.crc),
+            aup_mass: discontinued ? null : readingNum(rdg.aup),
+          }
+          const { data, error } = await supabase.from('experiments').insert(expRow).select('id,en').single()
           if (error) throw error
           const id = (data as any).id as string
           if (typeof (data as any).en === 'number') createdEns.push((data as any).en)
@@ -448,12 +461,35 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
         <>
           <div className="rounded-xl border border-orange/25 bg-orange-tint/25 p-3.5">
             <div className="mb-1 flex items-center gap-2"><Scale size={15} className="text-orange" /><h3 className="text-sm font-semibold">Absorbency <span className="font-normal text-subtle">· auto-calculated</span></h3></div>
-            <p className="mb-3 text-xs text-muted">Enter the measured sample mass after each test — the app converts to g absorbed per g dry gel.</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <AbsInput mkey="FSC" reading={fscMass} setReading={setFscMass} compute={computeFSC} label="FSC" caption="Mass of swollen gel (g)" hint={`= ((mass − ${ABS_CONST.fsc.tare}) − ${ABS_CONST.fsc.dry}) / ${ABS_CONST.fsc.dry}`} />
-              <AbsInput mkey="CRC" reading={crcMass} setReading={setCrcMass} compute={computeCRC} label="CRC" caption="Mass after centrifuge (g)" hint={`= (mass − ${ABS_CONST.crc.tare}) / ${ABS_CONST.crc.dry}`} />
-              <AbsInput mkey="AUP" reading={aupMass} setReading={setAupMass} compute={computeAUP} label="AUP" caption="Mass after AUP test (g)" hint={`= (mass − ${ABS_CONST.aup.tare}) / ${ABS_CONST.aup.dry}`} />
-            </div>
+            {allowVary && varyCount >= 1 ? (
+              <>
+                <p className="mb-3 text-xs text-muted">Enter the test masses for each value in the series — each row becomes that sample’s FSC, CRC and AUP.</p>
+                <div className="space-y-2">
+                  {varyValues.map((val, i) => {
+                    const r = seriesReadings[val] ?? { fsc: '', crc: '', aup: '' }
+                    return (
+                      <div key={val + i} className="rounded-lg border border-line bg-surface p-2.5">
+                        <div className="mb-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold text-white" style={{ background: '#6C5CE0' }}><Variable size={12} /><span className="data">{val}{varyUnit ? ` ${varyUnit}` : ''}</span></div>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <MiniAbs mkey="FSC" raw={r.fsc} compute={computeFSC} onChange={(v) => updSeries(val, 'fsc', v)} placeholder="swollen mass (g)" />
+                          <MiniAbs mkey="CRC" raw={r.crc} compute={computeCRC} onChange={(v) => updSeries(val, 'crc', v)} placeholder="after centrifuge (g)" />
+                          <MiniAbs mkey="AUP" raw={r.aup} compute={computeAUP} onChange={(v) => updSeries(val, 'aup', v)} placeholder="after AUP (g)" />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mb-3 text-xs text-muted">Enter the measured sample mass after each test — the app converts to g absorbed per g dry gel.</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <AbsInput mkey="FSC" reading={fscMass} setReading={setFscMass} compute={computeFSC} label="FSC" caption="Mass of swollen gel (g)" hint={`= ((mass − ${ABS_CONST.fsc.tare}) − ${ABS_CONST.fsc.dry}) / ${ABS_CONST.fsc.dry}`} />
+                  <AbsInput mkey="CRC" reading={crcMass} setReading={setCrcMass} compute={computeCRC} label="CRC" caption="Mass after centrifuge (g)" hint={`= (mass − ${ABS_CONST.crc.tare}) / ${ABS_CONST.crc.dry}`} />
+                  <AbsInput mkey="AUP" reading={aupMass} setReading={setAupMass} compute={computeAUP} label="AUP" caption="Mass after AUP test (g)" hint={`= (mass − ${ABS_CONST.aup.tare}) / ${ABS_CONST.aup.dry}`} />
+                </div>
+              </>
+            )}
           </div>
 
           <RowSection icon={<Gauge size={15} />} title="Other results" tone="violet" onAdd={() => setRes((r) => [...r, blankRes()])} addLabel="Add result">
@@ -530,6 +566,21 @@ function Toggle({ on, onChange, icon, label, hint, tone }: { on: boolean; onChan
     </button>
   )
 }
+function MiniAbs({ mkey, raw, compute, onChange, placeholder }: { mkey: 'FSC' | 'CRC' | 'AUP'; raw: string; compute: (n: number) => number; onChange: (v: string) => void; placeholder: string }) {
+  const color = METRIC_COLOR[mkey]
+  const num = raw.trim() === '' ? null : parseFloat(raw)
+  const v = num == null || Number.isNaN(num) ? null : compute(num)
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-2xs font-bold tracking-wide" style={{ color }}>{mkey}</span>
+        <span className="data text-2xs font-bold tabular-nums" style={{ color }}>{v != null ? `${v} g/g` : '—'}</span>
+      </div>
+      <input className="field data h-9" type="number" step="any" inputMode="decimal" placeholder={placeholder} value={raw} onChange={(e) => onChange(e.target.value)} />
+    </div>
+  )
+}
+
 function VaryToggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button type="button" onClick={onClick} title="Vary this value across a set of experiments" aria-label="Vary this value" className={cx('grid h-9 w-9 place-items-center rounded-lg border transition', on ? 'border-transparent text-white shadow-card' : 'border-line text-subtle hover:bg-black/[0.03]')} style={on ? { background: '#6C5CE0' } : undefined}>

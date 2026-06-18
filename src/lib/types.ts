@@ -165,3 +165,20 @@ export interface WeeklyGoal {
   created_by: string | null
   created_at: string
 }
+
+export interface SupplierSample {
+  id: string
+  name: string
+  supplier: string | null
+  code: string | null
+  cost_per_ton: number | null
+  degree_substitution: string | null
+  purity: string | null
+  viscosity: string | null
+  colour: string | null
+  experiment_ids: string[]
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}

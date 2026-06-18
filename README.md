@@ -251,3 +251,14 @@ Run **`supabase/migration_v3.sql`** once in the Supabase SQL Editor (safe to re-
 **Manager vs admin.** *Admins* (Reza, Fabiola, Amaury) manage accounts and access. *Managers* (Ben, Amaury) approve leave. The two are independent — Ben is a manager but not an admin.
 
 **Series logging (varying factor).** In the new-experiment panel, each material and each process step has a small **vary** button (the *x* icon). Turn it on for the one factor you're testing — say the mass or volume of a material — and enter several values (e.g. 1, 2, 3 g). On submit the app creates a **separate experiment for each value** (consecutive EN numbers), identical apart from that factor, so a whole series goes in with one form. Only one varying factor is allowed per series, and it's available when creating new experiments (not when editing an existing one).
+
+When a varying factor is set, the **Absorbency** section turns into one row per value, so you record the FSC, CRC and AUP test masses for each sample in the series as you log it. Each row's readings are saved to that sample's own experiment, giving you a separate FSC/CRC/AUP per amount — ready to plot as a dose–response in Compare or Breakdown.
+
+---
+
+## v4 — Supplier samples + multi-line check-ins
+
+Run **`supabase/migration_v4.sql`** once in the Supabase SQL Editor (safe to re-run) — it adds the `supplier_samples` table.
+
+- **Multi-line check-ins.** The morning-goal / day-update box is now a proper text area: **Enter** starts a new line, and you post with the **Post** button (or ⌘/Ctrl + Enter). Line breaks are preserved in the feed.
+- **Supplier samples (Library → Supplier samples).** A catalogue of raw materials received from external suppliers. For each one you record **cost per ton, degree of substitution, purity %, viscosity, and colour**, and link the experiments that represent it — the app then shows that material's **performance** (FSC / CRC / AUP) averaged from those experiments. Everyone sees the same catalogue, and it updates live.

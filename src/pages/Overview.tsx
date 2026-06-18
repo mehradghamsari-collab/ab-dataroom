@@ -393,9 +393,18 @@ function TeamToday() {
           <button onClick={() => setKind('morning')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'morning' ? 'bg-surface text-orange-dark shadow-card' : 'text-muted')}><Sun size={13} /> Morning goal</button>
           <button onClick={() => setKind('update')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'update' ? 'bg-surface text-brand-dark shadow-card' : 'text-muted')}><Sunset size={13} /> Day update</button>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <input className="field flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && post()} placeholder={kind === 'morning' ? 'What are you focusing on today?' : 'What did you get done / where are you at?'} />
-          <button className="btn-primary" onClick={post} disabled={busy || !text.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Post'}</button>
+        <div className="space-y-2">
+          <textarea
+            className="field min-h-[68px] resize-y leading-relaxed"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post() } }}
+            placeholder={kind === 'morning' ? 'What are you focusing on today? (Enter for a new line)' : 'What did you get done / where are you at?'}
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-2xs text-subtle">Enter adds a line · ⌘/Ctrl+Enter posts</span>
+            <button className="btn-primary" onClick={post} disabled={busy || !text.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Post'}</button>
+          </div>
         </div>
       </div>
 
@@ -409,8 +418,8 @@ function TeamToday() {
               <OwnerAvatar name={personName(people, uid)} size={30} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">{personName(people, uid)}{uid === profile?.id && <span className="ml-1 text-2xs font-normal text-subtle">(you)</span>}</div>
-                {v.morning && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sun size={12} className="mt-1 shrink-0 text-orange" /> <span className="flex-1">{v.morning.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.morning.created_at)}</span></p>}
-                {v.update && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sunset size={12} className="mt-1 shrink-0 text-brand" /> <span className="flex-1">{v.update.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.update.created_at)}</span></p>}
+                {v.morning && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sun size={12} className="mt-1 shrink-0 text-orange" /> <span className="flex-1 whitespace-pre-wrap">{v.morning.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.morning.created_at)}</span></p>}
+                {v.update && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sunset size={12} className="mt-1 shrink-0 text-brand" /> <span className="flex-1 whitespace-pre-wrap">{v.update.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.update.created_at)}</span></p>}
               </div>
             </div>
           ))

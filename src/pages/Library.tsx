@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, Pencil, Trash2, Beaker, Coins, Target } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Beaker, Coins, Target, Package, X, FlaskConical } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import type { AmountUnit, Benchmark, Chemical, NamedItem, RefTable } from '../lib/types'
+import type { AmountUnit, Benchmark, Chemical, NamedItem, RefTable, SupplierSample, FullExperiment } from '../lib/types'
 import { Modal, Spinner, EmptyState, useToast, useConfirm, FullLoader, Segmented, MetricPill } from '../components/ui'
+import { Combobox } from '../components/Combobox'
+import { sampleMetrics, METRIC_COLOR } from '../lib/metrics'
 import { cx } from '../lib/utils'
 
-type Tab = 'chemicals' | 'benchmarks' | RefTable
+type Tab = 'chemicals' | 'benchmarks' | 'supplier_samples' | RefTable
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chemicals', label: 'Chemicals' },
+  { key: 'supplier_samples', label: 'Supplier samples' },
   { key: 'benchmarks', label: 'Benchmarks' },
   { key: 'experiment_types', label: 'Experiment types' },
   { key: 'process_names', label: 'Processes' },
@@ -43,7 +46,7 @@ export function Library() {
       </div>
 
       <div className="mt-5">
-        {tab === 'chemicals' ? <Chemicals /> : tab === 'benchmarks' ? <Benchmarks /> : <NamedList table={tab as RefTable} />}
+        {tab === 'chemicals' ? <Chemicals /> : tab === 'supplier_samples' ? <SupplierSamples /> : tab === 'benchmarks' ? <Benchmarks /> : <NamedList table={tab as RefTable} />}
       </div>
     </div>
   )
@@ -181,6 +184,181 @@ function Chemicals() {
             </div>
           </Field>
           <Field label="Comments"><textarea className="field min-h-[72px] resize-y" value={draft.comments ?? ''} onChange={(e) => setDraft({ ...draft, comments: e.target.value })} /></Field>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+/* ----------------------------- Supplier samples ----------------------------- */
+const emptySupplier: Partial<SupplierSample> = { name: '', supplier: '', code: '', cost_per_ton: null, degree_substitution: '', purity: '', viscosity: '', colour: '', experiment_ids: [], notes: '' }
+
+function perfOf(ids: string[], experiments: FullExperiment[]) {
+  const exps = ids.map((id) => experiments.find((e) => e.id === id)).filter(Boolean) as FullExperiment[]
+  const avg = (key: 'FSC' | 'CRC' | 'AUP') => {
+    const vals = exps.map((e) => sampleMetrics(e)[key]).filter((v): v is number => v != null)
+    return vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : null
+  }
+  return { FSC: avg('FSC'), CRC: avg('CRC'), AUP: avg('AUP'), n: exps.length }
+}
+
+function SupplierSamples() {
+  const { supplierSamples, experiments, refetchRefs } = useData()
+  const { isAdmin, profile } = useAuth()
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<Partial<SupplierSample>>(emptySupplier)
+  const [busy, setBusy] = useState(false)
+
+  const list = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    if (!s) return supplierSamples
+    return supplierSamples.filter((x) => [x.name, x.supplier, x.code, x.colour, x.notes].join(' ').toLowerCase().includes(s))
+  }, [supplierSamples, q])
+
+  const openNew = () => { setDraft(emptySupplier); setOpen(true) }
+  const openEdit = (x: SupplierSample) => { setDraft({ ...x }); setOpen(true) }
+
+  const save = async () => {
+    if (!draft.name?.trim()) return
+    setBusy(true)
+    try {
+      const payload = {
+        name: draft.name.trim(), supplier: draft.supplier || null, code: draft.code || null,
+        cost_per_ton: draft.cost_per_ton ?? null, degree_substitution: draft.degree_substitution || null,
+        purity: draft.purity || null, viscosity: draft.viscosity || null, colour: draft.colour || null,
+        experiment_ids: draft.experiment_ids ?? [], notes: draft.notes || null,
+      }
+      const { error } = draft.id
+        ? await supabase.from('supplier_samples').update({ ...payload, updated_at: new Date().toISOString() }).eq('id', draft.id)
+        : await supabase.from('supplier_samples').insert({ ...payload, created_by: profile?.id ?? null })
+      if (error) throw error
+      await refetchRefs(); toast(draft.id ? 'Sample updated' : 'Sample added'); setOpen(false)
+    } catch (e: any) { toast(e?.message ?? 'Could not save', 'err') } finally { setBusy(false) }
+  }
+
+  const remove = async (x: SupplierSample) => {
+    if (!(await confirm({ title: `Delete ${x.name}?`, message: 'This removes the supplier sample for everyone.', confirmLabel: 'Delete', danger: true }))) return
+    const { error } = await supabase.from('supplier_samples').delete().eq('id', x.id)
+    if (error) { toast(error.message, 'err') } else { await refetchRefs(); toast('Deleted') }
+  }
+
+  const enOptions = useMemo(() => experiments.slice(0, 600).map((e) => (e.description ? `EN${e.en} — ${e.description}` : `EN${e.en}`)), [experiments])
+  const addExp = (label: string) => {
+    const m = label.match(/EN\s*(\d+)/i)
+    const e = m ? experiments.find((x) => String(x.en) === m[1]) : undefined
+    if (e && !(draft.experiment_ids ?? []).includes(e.id)) setDraft({ ...draft, experiment_ids: [...(draft.experiment_ids ?? []), e.id] })
+  }
+  const draftPerf = perfOf(draft.experiment_ids ?? [], experiments)
+
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-subtle" />
+          <input className="field pl-9" placeholder="Search supplier samples…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <span className="data text-sm text-muted">{list.length}</span>
+        <button className="btn-primary" onClick={openNew}><Plus size={16} /> Add sample</button>
+      </div>
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-line bg-surface shadow-card">
+        <table className="w-full min-w-[760px] text-sm">
+          <thead>
+            <tr className="border-b border-line bg-paper text-left text-2xs uppercase tracking-wider text-muted">
+              <th className="px-4 py-2.5 font-semibold">Material</th>
+              <th className="px-4 py-2.5 text-right font-semibold">Cost/ton</th>
+              <th className="px-4 py-2.5 font-semibold">DS</th>
+              <th className="px-4 py-2.5 font-semibold">Purity</th>
+              <th className="px-4 py-2.5 font-semibold">Viscosity</th>
+              <th className="px-4 py-2.5 font-semibold">Colour</th>
+              <th className="px-4 py-2.5 font-semibold">Performance</th>
+              <th className="w-16 px-4 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((x) => {
+              const p = perfOf(x.experiment_ids, experiments)
+              return (
+                <tr key={x.id} className="group border-b border-line last:border-0 hover:bg-paper">
+                  <td className="px-4 py-2.5">
+                    <div className="font-medium text-ink">{x.name}</div>
+                    <div className="text-xs text-subtle">{[x.supplier, x.code].filter(Boolean).join(' · ') || '—'}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-right">{x.cost_per_ton != null ? <span className="data text-ink">${x.cost_per_ton}<span className="text-2xs text-subtle">/t</span></span> : <span className="text-subtle">—</span>}</td>
+                  <td className="px-4 py-2.5"><span className="data text-muted">{x.degree_substitution || '—'}</span></td>
+                  <td className="px-4 py-2.5"><span className="data text-muted">{x.purity || '—'}</span></td>
+                  <td className="px-4 py-2.5"><span className="data text-muted">{x.viscosity || '—'}</span></td>
+                  <td className="px-4 py-2.5 text-muted">{x.colour || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    {p.n === 0 ? <span className="text-subtle">—</span> : (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {(['FSC', 'CRC', 'AUP'] as const).map((k) => p[k] != null && <span key={k} className="rounded px-1.5 py-0.5 text-2xs font-semibold text-white" style={{ background: METRIC_COLOR[k] }}>{k} {p[k]}</span>)}
+                        <span className="text-2xs text-subtle">· {p.n} exp</span>
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100">
+                      <button className="btn-ghost h-8 w-8 p-0 text-muted" onClick={() => openEdit(x)} aria-label="Edit"><Pencil size={15} /></button>
+                      {(isAdmin || x.created_by === profile?.id) && <button className="btn-ghost h-8 w-8 p-0 text-muted hover:text-danger" onClick={() => remove(x)} aria-label="Delete"><Trash2 size={15} /></button>}
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        {list.length === 0 && <div className="p-8"><EmptyState icon={<Package size={26} />} title="No supplier samples yet" hint="Add a raw material received from a supplier — its cost, specs, and performance from your experiments." action={<button className="btn-primary" onClick={openNew}><Plus size={16} /> Add sample</button>} /></div>}
+      </div>
+
+      <Modal open={open} onClose={() => setOpen(false)} size="lg" title={draft.id ? 'Edit supplier sample' : 'Add supplier sample'}
+        footer={<>
+          <button className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+          <button className="btn-primary" onClick={save} disabled={busy || !draft.name?.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Save'}</button>
+        </>}>
+        <div className="space-y-3.5">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+            <Field label="Material" hint="e.g. Xanthan Gum"><input className="field" value={draft.name ?? ''} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus /></Field>
+            <Field label="Supplier"><input className="field" value={draft.supplier ?? ''} onChange={(e) => setDraft({ ...draft, supplier: e.target.value })} /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-4">
+            <Field label="Code"><input className="field data" value={draft.code ?? ''} onChange={(e) => setDraft({ ...draft, code: e.target.value })} placeholder="XN0" /></Field>
+            <Field label="Cost / ton ($)"><input className="field data" type="number" step="any" inputMode="decimal" value={draft.cost_per_ton ?? ''} onChange={(e) => setDraft({ ...draft, cost_per_ton: e.target.value === '' ? null : parseFloat(e.target.value) })} placeholder="1800" /></Field>
+            <Field label="Degree of subst."><input className="field data" value={draft.degree_substitution ?? ''} onChange={(e) => setDraft({ ...draft, degree_substitution: e.target.value })} placeholder="0.8" /></Field>
+            <Field label="Purity %"><input className="field data" value={draft.purity ?? ''} onChange={(e) => setDraft({ ...draft, purity: e.target.value })} placeholder=">95" /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3.5">
+            <Field label="Viscosity"><input className="field data" value={draft.viscosity ?? ''} onChange={(e) => setDraft({ ...draft, viscosity: e.target.value })} placeholder="1200-1800 mPa·s" /></Field>
+            <Field label="Colour"><input className="field" value={draft.colour ?? ''} onChange={(e) => setDraft({ ...draft, colour: e.target.value })} placeholder="White / off-white" /></Field>
+          </div>
+
+          <Field label="Performance — link experiments" hint="Pick the experiments that represent this material. FSC/CRC/AUP are averaged from them automatically.">
+            <Combobox value="" onChange={addExp} options={enOptions} placeholder="Search EN to add…" />
+            {(draft.experiment_ids ?? []).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {(draft.experiment_ids ?? []).map((id) => {
+                  const e = experiments.find((x) => x.id === id)
+                  return (
+                    <span key={id} className="inline-flex items-center gap-1 rounded-full bg-brand-tint px-2.5 py-1 text-xs font-medium text-brand-dark">
+                      <FlaskConical size={11} /><span className="data">EN{e?.en ?? '?'}</span>
+                      <button type="button" onClick={() => setDraft({ ...draft, experiment_ids: (draft.experiment_ids ?? []).filter((i) => i !== id) })} className="opacity-70 transition hover:opacity-100"><X size={11} /></button>
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+            {draftPerf.n > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-lg border border-line bg-paper px-3 py-2">
+                <span className="text-2xs text-subtle">Averaged from {draftPerf.n} experiment{draftPerf.n > 1 ? 's' : ''}:</span>
+                {(['FSC', 'CRC', 'AUP'] as const).map((k) => draftPerf[k] != null && <MetricPill key={k} k={k} value={draftPerf[k]} size="sm" />)}
+              </div>
+            )}
+          </Field>
+
+          <Field label="Notes"><textarea className="field min-h-[60px] resize-y" value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></Field>
         </div>
       </Modal>
     </>
