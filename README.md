@@ -140,3 +140,46 @@ src/
   pages/                  Login, Experiments, Graphs, Library, Admin
   lib/                    Supabase client, types, helpers
 ```
+
+---
+
+# v2 — What's new & how to set it up
+
+This version adds work packages, two‑step samples, units (g/mL), discontinued experiments, costing, benchmarks, a richer plotting suite, a dashboard, weekly Excel backups, and an optional AI assistant.
+
+## ⚠️ One‑time database update (required)
+
+Open Supabase → **SQL Editor** and run **`supabase/migration_v2.sql`** once. It adds the new columns and the `benchmarks` table. It's safe to run more than once. (Fresh installs that run `schema.sql` already include everything.)
+
+You don't need to touch anything else — Vercel reinstalls dependencies automatically on the next deploy.
+
+## New features
+
+- **Overview dashboard** (now the home page): weekly summary, this‑week bar chart, by‑owner breakdown, recently logged, and **best‑performing samples** ranked by FSC / CRC / AUP.
+- **Work packages**: every experiment can be tagged to a project — Project 1 (Network refinement), 1b (Synthetic biopolymer), 2 (Biopolymer modification & linking), 3 (Surface linking), 4 (Scale up), 5 (IP). Filter and colour‑code by project.
+- **Material units**: each material can be entered in **g or mL**.
+- **Two‑step samples**: toggle on an experiment to capture **Step 1 · Bulk** and **Step 2 · Surface crosslinking** in a single row.
+- **Discontinued experiments**: mark experiments that have no results; filter them in/out.
+- **Costing (optional)**: add a price per g/mL to chemicals in the Library; each experiment then shows an estimated formulation cost. This is preliminary and will refine automatically once a TEA file is imported.
+- **Benchmarks**: in Library → Benchmarks, enter your synthetic reference samples (FSC, CRC, AUP, price/kg).
+- **Plot & analyse**:
+  - **Compare samples** — pick experiments and get a grouped bar chart of FSC/CRC/AUP (choose which metrics).
+  - **Matrices** — CRC × AUP scatter (with benchmark overlay) and a **cost‑vs‑performance parity** chart against a chosen benchmark.
+  - **Explore** — flexible scatter / bar / trend over any numeric result.
+  - The company logo sits subtly in the corner of every chart.
+- **Weekly Excel backup**: on the Overview page, anyone can download a full multi‑sheet `.xlsx` backup of all data. The card reminds you when it's been over a week.
+
+## AI reports (optional, bring your own key)
+
+In **AI reports** you can plug in your own model and generate a **lab report** for any experiment or **weekly slide content**.
+
+- Supported: **Ollama** (local), **Grok (xAI)**, or any **OpenAI‑compatible** endpoint.
+- Your API key is stored **only in your browser** (localStorage). It is never saved to the dataroom or shared with the team, and these tools never modify any experiment — they only read data to draft documents.
+- **Ollama note:** browsers block an `https://` site from calling `http://localhost`. To use a local Ollama with the hosted app, start it allowing the origin, e.g. `OLLAMA_ORIGINS=* ollama serve`, or run the app locally. Hosted APIs (xAI/OpenAI) may also require their CORS to permit browser calls.
+
+## Is the data safe? Where is it stored?
+
+- All experiment data lives in your **Supabase Postgres database** on the server — **not** in the browser. Logging out, closing the tab, or switching devices never deletes anything; your data persists.
+- Access is gated by **Supabase Auth** plus **Row‑Level Security**: only approved accounts can read, and only admins can do admin actions. These rules are enforced on the server, so they can't be bypassed from the browser.
+- The only things kept in your browser are your UI preferences, the "last backup" date, and (if you use it) your personal AI key.
+- For maximum security we recommend turning email confirmation back on (or moving to magic‑link / password login) once everyone has joined — see the note in the login section above.

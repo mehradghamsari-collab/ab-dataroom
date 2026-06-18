@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { FlaskConical, LineChart, Library as LibraryIcon, ShieldCheck, Menu, X, LogOut } from 'lucide-react'
+import { FlaskConical, LineChart, Library as LibraryIcon, ShieldCheck, Menu, X, LogOut, LayoutDashboard, Sparkles } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { OwnerAvatar } from './ui'
 import { cx } from '../lib/utils'
@@ -18,9 +18,11 @@ function Logo() {
 }
 
 const NAV = [
+  { to: '/overview', label: 'Overview', icon: LayoutDashboard },
   { to: '/experiments', label: 'Experiments', icon: FlaskConical },
-  { to: '/graphs', label: 'Graphs', icon: LineChart },
+  { to: '/graphs', label: 'Plot & analyse', icon: LineChart },
   { to: '/library', label: 'Library', icon: LibraryIcon },
+  { to: '/reports', label: 'AI reports', icon: Sparkles },
 ]
 
 function NavItems({ onNavigate, isAdmin }: { onNavigate?: () => void; isAdmin: boolean }) {

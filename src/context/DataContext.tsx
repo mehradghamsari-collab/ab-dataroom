@@ -1,12 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Chemical, FullExperiment, NamedItem, RefTable } from '../lib/types'
+import type { Benchmark, Chemical, FullExperiment, NamedItem, RefTable } from '../lib/types'
 import { useAuth } from './AuthContext'
 
 interface DataValue {
   loading: boolean
   experiments: FullExperiment[]
   chemicals: Chemical[]
+  benchmarks: Benchmark[]
   types: NamedItem[]
   processes: NamedItem[]
   measures: NamedItem[]
@@ -29,6 +30,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [experiments, setExperiments] = useState<FullExperiment[]>([])
   const [chemicals, setChemicals] = useState<Chemical[]>([])
+  const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
   const [types, setTypes] = useState<NamedItem[]>([])
   const [processes, setProcesses] = useState<NamedItem[]>([])
   const [measures, setMeasures] = useState<NamedItem[]>([])
@@ -54,6 +56,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     )
     const { data: chem } = await supabase.from('chemicals').select('*').order('name')
     setChemicals((chem as Chemical[]) ?? [])
+    const { data: bm } = await supabase.from('benchmarks').select('*').order('name')
+    setBenchmarks((bm as Benchmark[]) ?? [])
   }, [])
 
   useEffect(() => {
@@ -101,6 +105,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'process_names' }, () => debounce(refetchRefs))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'measure_types' }, () => debounce(refetchRefs))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'result_types' }, () => debounce(refetchRefs))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'benchmarks' }, () => debounce(refetchRefs))
       .subscribe()
     return () => {
       supabase.removeChannel(channel)
@@ -135,6 +140,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     loading,
     experiments,
     chemicals,
+    benchmarks,
     types,
     processes,
     measures,

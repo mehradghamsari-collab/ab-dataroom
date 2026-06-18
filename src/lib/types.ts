@@ -10,13 +10,18 @@ export interface Profile {
   created_at: string
 }
 
+export type AmountUnit = 'g' | 'mL'
+export type Stage = 'bulk' | 'surface'
+
 export interface Material {
   id?: string
   experiment_id?: string
   position: number | null
   name: string | null
-  mass_g: number | null
+  mass_g: number | null // the amount value (grams when unit='g', millilitres when unit='mL')
+  unit: AmountUnit
   ratio: string | null
+  stage?: Stage | null
 }
 
 export interface ProcessStep {
@@ -26,6 +31,7 @@ export interface ProcessStep {
   process: string | null
   measure: string | null
   value: string | null
+  stage?: Stage | null
 }
 
 export interface ResultEntry {
@@ -47,6 +53,10 @@ export interface Experiment {
   experiment_type: string | null
   description: string | null
   method: string | null
+  is_two_step: boolean
+  discontinued: boolean
+  extra_cost: number | null
+  project: string | null
   created_at: string
   updated_at: string
   created_by: string | null
@@ -65,6 +75,19 @@ export interface Chemical {
   full_name: string | null
   comments: string | null
   cas_no: string | null
+  price: number | null
+  price_unit: AmountUnit | null
+  currency: string | null
+}
+
+export interface Benchmark {
+  id: string
+  name: string
+  fsc: number | null
+  crc: number | null
+  aup: number | null
+  price: number | null
+  notes: string | null
 }
 
 export interface NamedItem {

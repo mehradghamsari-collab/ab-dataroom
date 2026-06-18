@@ -1,15 +1,16 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, Pencil, Trash2, Beaker } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Beaker, Coins, Target } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import type { Chemical, NamedItem, RefTable } from '../lib/types'
-import { Modal, Spinner, EmptyState, useToast, useConfirm, FullLoader } from '../components/ui'
+import type { AmountUnit, Benchmark, Chemical, NamedItem, RefTable } from '../lib/types'
+import { Modal, Spinner, EmptyState, useToast, useConfirm, FullLoader, Segmented, MetricPill } from '../components/ui'
 import { cx } from '../lib/utils'
 
-type Tab = 'chemicals' | RefTable
+type Tab = 'chemicals' | 'benchmarks' | RefTable
 const TABS: { key: Tab; label: string }[] = [
   { key: 'chemicals', label: 'Chemicals' },
+  { key: 'benchmarks', label: 'Benchmarks' },
   { key: 'experiment_types', label: 'Experiment types' },
   { key: 'process_names', label: 'Processes' },
   { key: 'measure_types', label: 'Measures' },
@@ -42,14 +43,14 @@ export function Library() {
       </div>
 
       <div className="mt-5">
-        {tab === 'chemicals' ? <Chemicals /> : <NamedList table={tab} />}
+        {tab === 'chemicals' ? <Chemicals /> : tab === 'benchmarks' ? <Benchmarks /> : <NamedList table={tab as RefTable} />}
       </div>
     </div>
   )
 }
 
 /* ----------------------------- Chemicals ----------------------------- */
-const empty: Partial<Chemical> = { name: '', supplier: '', full_name: '', cas_no: '', comments: '' }
+const empty: Partial<Chemical> = { name: '', supplier: '', full_name: '', cas_no: '', comments: '', price: null, price_unit: 'g', currency: 'USD' }
 
 function Chemicals() {
   const { chemicals, refetchRefs } = useData()
@@ -82,6 +83,9 @@ function Chemicals() {
         full_name: draft.full_name || null,
         cas_no: draft.cas_no || null,
         comments: draft.comments || null,
+        price: draft.price ?? null,
+        price_unit: draft.price_unit ?? 'g',
+        currency: draft.currency || 'USD',
       }
       const { error } = draft.id
         ? await supabase.from('chemicals').update(payload).eq('id', draft.id)
@@ -122,6 +126,7 @@ function Chemicals() {
               <th className="px-4 py-2.5 font-semibold">Name</th>
               <th className="hidden px-4 py-2.5 font-semibold sm:table-cell">Supplier</th>
               <th className="hidden px-4 py-2.5 font-semibold md:table-cell">CAS no.</th>
+              <th className="hidden px-4 py-2.5 text-right font-semibold lg:table-cell">Price</th>
               <th className="w-20 px-4 py-2.5"></th>
             </tr>
           </thead>
@@ -134,6 +139,7 @@ function Chemicals() {
                 </td>
                 <td className="hidden px-4 py-2.5 text-muted sm:table-cell">{c.supplier || '—'}</td>
                 <td className="hidden px-4 py-2.5 md:table-cell"><span className="data text-muted">{c.cas_no || '—'}</span></td>
+                <td className="hidden px-4 py-2.5 text-right lg:table-cell">{c.price != null ? <span className="data text-ink">{c.price} <span className="text-2xs text-subtle">{c.currency || 'USD'}/{c.price_unit || 'g'}</span></span> : <span className="text-subtle">—</span>}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100">
                     <button className="btn-ghost h-8 w-8 p-0 text-muted" onClick={() => openEdit(c)} aria-label="Edit"><Pencil size={15} /></button>
@@ -167,7 +173,127 @@ function Chemicals() {
             <Field label="CAS no."><input className="field data" value={draft.cas_no ?? ''} onChange={(e) => setDraft({ ...draft, cas_no: e.target.value })} /></Field>
           </div>
           <Field label="Full name"><input className="field" value={draft.full_name ?? ''} onChange={(e) => setDraft({ ...draft, full_name: e.target.value })} /></Field>
+          <Field label="Price · optional" hint="Cost per unit of this material. Used to estimate formulation cost (refined later from the TEA file).">
+            <div className="flex flex-wrap items-center gap-2">
+              <input className="field data w-28" type="number" step="any" inputMode="decimal" placeholder="0.00" value={draft.price ?? ''} onChange={(e) => setDraft({ ...draft, price: e.target.value === '' ? null : parseFloat(e.target.value) })} />
+              <Segmented value={(draft.price_unit ?? 'g') as AmountUnit} onChange={(u) => setDraft({ ...draft, price_unit: u })} size="sm" options={[{ value: 'g', label: 'per g' }, { value: 'mL', label: 'per mL' }]} />
+              <input className="field w-20" placeholder="USD" value={draft.currency ?? 'USD'} onChange={(e) => setDraft({ ...draft, currency: e.target.value })} />
+            </div>
+          </Field>
           <Field label="Comments"><textarea className="field min-h-[72px] resize-y" value={draft.comments ?? ''} onChange={(e) => setDraft({ ...draft, comments: e.target.value })} /></Field>
+        </div>
+      </Modal>
+    </>
+  )
+}
+
+/* ----------------------------- Benchmarks ----------------------------- */
+const emptyBm: Partial<Benchmark> = { name: '', fsc: null, crc: null, aup: null, price: null, notes: '' }
+
+function Benchmarks() {
+  const { benchmarks, refetchRefs } = useData()
+  const { isAdmin } = useAuth()
+  const toast = useToast()
+  const confirm = useConfirm()
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<Partial<Benchmark>>(emptyBm)
+  const [busy, setBusy] = useState(false)
+
+  const list = useMemo(() => {
+    const s = q.trim().toLowerCase()
+    return s ? benchmarks.filter((b) => [b.name, b.notes].join(' ').toLowerCase().includes(s)) : benchmarks
+  }, [benchmarks, q])
+
+  const save = async () => {
+    if (!draft.name?.trim()) return
+    setBusy(true)
+    try {
+      const payload = { name: draft.name.trim(), fsc: draft.fsc ?? null, crc: draft.crc ?? null, aup: draft.aup ?? null, price: draft.price ?? null, notes: draft.notes || null }
+      const { error } = draft.id ? await supabase.from('benchmarks').update(payload).eq('id', draft.id) : await supabase.from('benchmarks').insert(payload)
+      if (error) throw error
+      await refetchRefs()
+      toast(draft.id ? 'Benchmark updated' : 'Benchmark added')
+      setOpen(false)
+    } catch (e: any) {
+      toast(e?.message ?? 'Could not save', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const remove = async (b: Benchmark) => {
+    if (!(await confirm({ title: `Delete ${b.name}?`, message: 'This removes the benchmark from parity analysis.', confirmLabel: 'Delete', danger: true }))) return
+    const { error } = await supabase.from('benchmarks').delete().eq('id', b.id)
+    if (error) toast(error.message, 'err')
+    else { await refetchRefs(); toast('Benchmark deleted') }
+  }
+
+  return (
+    <>
+      <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-line bg-brand-tint/40 px-4 py-3">
+        <Target size={18} className="mt-0.5 shrink-0 text-brand" />
+        <p className="text-sm text-ink">Benchmarks are your <span className="font-medium">synthetic reference samples</span>. Enter their FSC, CRC, AUP and price per kg here, and the Plot page can measure every experiment's performance and cost against them.</p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-subtle" />
+          <input className="field pl-9" placeholder="Search benchmarks…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <span className="data text-sm text-muted">{list.length}</span>
+        <button className="btn-primary" onClick={() => { setDraft(emptyBm); setOpen(true) }}><Plus size={16} /> Add benchmark</button>
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-line bg-paper text-left text-2xs uppercase tracking-wider text-muted">
+              <th className="px-4 py-2.5 font-semibold">Name</th>
+              <th className="px-4 py-2.5 text-right font-semibold">FSC</th>
+              <th className="px-4 py-2.5 text-right font-semibold">CRC</th>
+              <th className="px-4 py-2.5 text-right font-semibold">AUP</th>
+              <th className="hidden px-4 py-2.5 text-right font-semibold sm:table-cell">Price /kg</th>
+              <th className="w-20 px-4 py-2.5"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((b) => (
+              <tr key={b.id} className="group border-b border-line last:border-0 hover:bg-paper">
+                <td className="px-4 py-2.5"><div className="font-medium text-ink">{b.name}</div>{b.notes && <div className="text-xs text-subtle">{b.notes}</div>}</td>
+                <td className="px-4 py-2.5 text-right data text-ink">{b.fsc ?? '—'}</td>
+                <td className="px-4 py-2.5 text-right data text-ink">{b.crc ?? '—'}</td>
+                <td className="px-4 py-2.5 text-right data text-ink">{b.aup ?? '—'}</td>
+                <td className="hidden px-4 py-2.5 text-right data text-muted sm:table-cell">{b.price ?? '—'}</td>
+                <td className="px-4 py-2.5">
+                  <div className="flex justify-end gap-1 opacity-0 transition group-hover:opacity-100">
+                    <button className="btn-ghost h-8 w-8 p-0 text-muted" onClick={() => { setDraft(b); setOpen(true) }} aria-label="Edit"><Pencil size={15} /></button>
+                    {isAdmin && <button className="btn-ghost h-8 w-8 p-0 text-muted hover:text-danger" onClick={() => remove(b)} aria-label="Delete"><Trash2 size={15} /></button>}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {list.length === 0 && <div className="p-8"><EmptyState icon={<Target size={26} />} title="No benchmarks yet" hint="Add a synthetic reference sample to unlock parity analysis." action={<button className="btn-primary" onClick={() => { setDraft(emptyBm); setOpen(true) }}><Plus size={16} /> Add benchmark</button>} /></div>}
+      </div>
+
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title={draft.id ? 'Edit benchmark' : 'Add benchmark'}
+        footer={<><button className="btn-ghost" onClick={() => setOpen(false)}>Cancel</button><button className="btn-primary" onClick={save} disabled={busy || !draft.name?.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Save'}</button></>}
+      >
+        <div className="space-y-3.5">
+          <Field label="Name" hint="e.g. Commercial SAP A, or a competitor grade"><input className="field" value={draft.name ?? ''} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus /></Field>
+          <div className="grid grid-cols-3 gap-3">
+            {(['fsc', 'crc', 'aup'] as const).map((key) => (
+              <Field key={key} label={`${key.toUpperCase()} (g/g)`}>
+                <input className="field data" type="number" step="any" inputMode="decimal" placeholder="0" value={(draft[key] as number | null) ?? ''} onChange={(e) => setDraft({ ...draft, [key]: e.target.value === '' ? null : parseFloat(e.target.value) })} />
+              </Field>
+            ))}
+          </div>
+          <Field label="Price per kg · optional" hint="Used for the price-parity matrix."><input className="field data" type="number" step="any" inputMode="decimal" placeholder="0.00" value={draft.price ?? ''} onChange={(e) => setDraft({ ...draft, price: e.target.value === '' ? null : parseFloat(e.target.value) })} /></Field>
+          <Field label="Notes"><input className="field" value={draft.notes ?? ''} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} /></Field>
         </div>
       </Modal>
     </>

@@ -8,8 +8,10 @@ import { Layout } from './components/Layout'
 import { Login } from './pages/Login'
 import { Experiments } from './pages/Experiments'
 
+const Overview = lazy(() => import('./pages/Overview').then((m) => ({ default: m.Overview })))
 const Graphs = lazy(() => import('./pages/Graphs').then((m) => ({ default: m.Graphs })))
 const Library = lazy(() => import('./pages/Library').then((m) => ({ default: m.Library })))
+const Reports = lazy(() => import('./pages/Reports').then((m) => ({ default: m.Reports })))
 const Admin = lazy(() => import('./pages/Admin').then((m) => ({ default: m.Admin })))
 const lazyEl = (node: React.ReactNode) => <Suspense fallback={<FullLoader />}>{node}</Suspense>
 
@@ -65,7 +67,7 @@ function Shell() {
     <Routes>
       <Route
         path="/login"
-        element={loading ? <FullLoader /> : session && isApproved ? <Navigate to="/experiments" replace /> : <Login />}
+        element={loading ? <FullLoader /> : session && isApproved ? <Navigate to="/overview" replace /> : <Login />}
       />
       <Route
         element={
@@ -76,12 +78,14 @@ function Shell() {
           </RequireAuth>
         }
       >
+        <Route path="/overview" element={lazyEl(<Overview />)} />
         <Route path="/experiments" element={<Experiments />} />
         <Route path="/graphs" element={lazyEl(<Graphs />)} />
         <Route path="/library" element={lazyEl(<Library />)} />
+        <Route path="/reports" element={lazyEl(<Reports />)} />
         <Route path="/admin" element={lazyEl(<RequireAdmin><Admin /></RequireAdmin>)} />
       </Route>
-      <Route path="*" element={<Navigate to="/experiments" replace />} />
+      <Route path="*" element={<Navigate to="/overview" replace />} />
     </Routes>
   )
 }

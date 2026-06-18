@@ -31,16 +31,16 @@
 @layer components {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium
-           transition-colors disabled:opacity-50 disabled:pointer-events-none select-none;
+           transition-all duration-150 active:scale-[0.97] disabled:opacity-50 disabled:pointer-events-none select-none;
   }
   .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark;
+    @apply btn bg-brand text-white hover:bg-brand-dark hover:shadow-lift;
   }
   .btn-ghost {
     @apply btn bg-transparent text-ink hover:bg-black/[0.04];
   }
   .btn-outline {
-    @apply btn border border-line bg-surface text-ink hover:bg-black/[0.03];
+    @apply btn border border-line bg-surface text-ink hover:bg-black/[0.03] hover:border-subtle;
   }
   .btn-danger {
     @apply btn bg-danger/10 text-danger hover:bg-danger/20;
@@ -56,11 +56,38 @@
   .card {
     @apply rounded-xl border border-line bg-surface shadow-card;
   }
+  .card-hover {
+    @apply card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift;
+  }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full border border-line bg-paper px-2.5 py-1 text-2xs font-medium text-muted;
   }
   .pill {
     @apply inline-flex items-center rounded-md px-2 py-0.5 text-2xs font-semibold;
+  }
+  .tab {
+    @apply -mb-px whitespace-nowrap border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors;
+  }
+  .seg {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium transition-all;
+  }
+  /* Staggered entrance — set style={{['--i' as any]: index}} on items */
+  .stagger {
+    animation: fadeUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-delay: calc(var(--i, 0) * 45ms);
+  }
+}
+
+@layer utilities {
+  .skeleton {
+    @apply relative overflow-hidden bg-black/[0.05];
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
+    transform: translateX(-100%);
+    animation: shimmer 1.4s infinite;
   }
 }
 
