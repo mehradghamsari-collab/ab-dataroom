@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, UploadCloud } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
 import { ExperimentModal } from './ExperimentEditor'
+import { ImportModal } from './ImportExperiments'
 import { FullLoader, EmptyState, TypePill, OwnerAvatar, MetricPill, Segmented } from '../components/ui'
 import { sampleMetrics } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
@@ -35,6 +36,7 @@ export function Experiments() {
   const [sort, setSort] = useState<Sort>('en_desc')
   const [showFilters, setShowFilters] = useState(false)
   const [open, setOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [active, setActive] = useState<FullExperiment | null>(null)
   const [mode, setMode] = useState<'view' | 'edit' | 'new'>('view')
 
@@ -79,7 +81,10 @@ export function Experiments() {
           <h1 className="text-2xl font-semibold tracking-tight">Experiments</h1>
           <p className="mt-1 text-sm text-muted"><span className="data font-medium text-ink">{list.length}</span>{list.length !== experiments.length && <span className="text-subtle"> of {experiments.length}</span>} records</p>
         </div>
-        <button className="btn-primary" onClick={openNew}><Plus size={17} /> New experiment</button>
+        <div className="flex items-center gap-2">
+          <button className="btn-outline" onClick={() => setImporting(true)}><UploadCloud size={16} /> Import</button>
+          <button className="btn-primary" onClick={openNew}><Plus size={17} /> New experiment</button>
+        </div>
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-2 animate-fadeUp" style={{ animationDelay: '40ms' }}>
@@ -205,6 +210,7 @@ export function Experiments() {
       </div>
 
       <ExperimentModal open={open} experiment={active} initialMode={mode} onClose={() => setOpen(false)} />
+      <ImportModal open={importing} onClose={() => setImporting(false)} />
     </div>
   )
 }

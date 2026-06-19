@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X } from 'lucide-react'
+import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X, Boxes } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage } from '../lib/types'
+import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage, Batch } from '../lib/types'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { Modal, Spinner, TypePill, OwnerAvatar, MetricPill, useToast, useConfirm } from '../components/ui'
@@ -13,10 +13,10 @@ import { PROJECTS, projectByCode } from '../lib/projects'
 type Mode = 'view' | 'edit' | 'new'
 let KEY = 0
 const k = () => `r${++KEY}`
-type MatRow = Material & { _k: string; vary?: boolean; values?: string[] }
+type MatRow = Material & { _k: string; vary?: boolean; values?: string[]; fromBatch?: boolean }
 type ProcRow = ProcessStep & { _k: string; vary?: boolean; values?: string[] }
 type ResRow = ResultEntry & { _k: string }
-const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, vary: false, values: [] })
+const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, batch_id: null, fromBatch: false, vary: false, values: [] })
 const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage, vary: false, values: [] })
 const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', value: '', value_num: null, comment: '' })
 
@@ -175,7 +175,7 @@ function DataTable({ head, rows, mono }: { head: string[]; rows: string[][]; mon
 
 /* ------------------------------- Edit form -------------------------------- */
 function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment: FullExperiment | null; canEdit: boolean; onCancel: () => void; onSaved: () => void }) {
-  const { chemicals, types, processes, measures, results, owners, addRef, addChemicalByName, refetchExperiments } = useData()
+  const { chemicals, types, processes, measures, results, owners, addRef, addChemicalByName, refetchExperiments, batches } = useData()
   const { profile } = useAuth()
   const toast = useToast()
   const confirm = useConfirm()
@@ -199,7 +199,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
     setSeriesReadings((prev) => ({ ...prev, [val]: { ...(prev[val] ?? { fsc: '', crc: '', aup: '' }), [field]: v } }))
 
   const [mats, setMats] = useState<MatRow[]>(
-    experiment ? (experiment.experiment_materials.map((m) => ({ ...m, _k: k(), unit: (m as any).unit ?? 'g' })) as MatRow[]) : [blankMat(null)],
+    experiment ? (experiment.experiment_materials.map((m) => ({ ...m, _k: k(), unit: (m as any).unit ?? 'g', fromBatch: !!(m as any).batch_id })) as MatRow[]) : [blankMat(null)],
   )
   const [procs, setProcs] = useState<ProcRow[]>(
     experiment ? (experiment.experiment_processes.map((p) => ({ ...p, _k: k() })) as ProcRow[]) : [blankProc(null)],
@@ -267,12 +267,16 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const varyUnit = varyMat?.unit ?? ''
   const varyLabel = varyMat ? `${varyMat.name} (${varyMat.unit})` : varyProc ? varyProc.measure || varyProc.process || 'process value' : ''
 
+  const batchLabel = (b: Batch) => `${b.code ? b.code + ' · ' : ''}${b.name}`
+  const batchOptions = batches.map(batchLabel)
+  const pickBatch = (key: string, label: string) => { const b = batches.find((x) => batchLabel(x) === label); updMat(key, { batch_id: b?.id ?? null, name: label }) }
+
   async function save() {
     setBusy(true)
     try {
       const matsFiltered = mats.filter((m) => m.name?.trim())
       const procsFiltered = procs.filter((p) => p.process?.trim() || p.measure?.trim() || p.value?.trim())
-      const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null }))
+      const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null, batch_id: m.batch_id ?? null }))
       const cleanProcs = procsFiltered.map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
 
@@ -420,19 +424,32 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
             {mats.filter((m) => (m.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No materials yet.</p>}
             {mats.filter((m) => (m.stage ?? null) === st.stage).map((m) => (
               <div key={m._k} className="space-y-2">
-                <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_92px_auto]">
-                  <Combobox value={m.name || ''} onChange={(v) => updMat(m._k, { name: v })} options={chemNames} onCreate={(v) => addChemicalByName(v)} placeholder="Chemical" createLabel={(v) => `Add “${v}” to chemicals`} />
-                  <input className="field data" type="number" step="any" inputMode="decimal" placeholder={m.vary ? 'varies ↓' : 'Amount'} disabled={!!m.vary} value={m.vary ? '' : m.mass_g ?? ''} onChange={(e) => updMat(m._k, { mass_g: e.target.value === '' ? null : parseFloat(e.target.value) })} />
-                  <UnitToggle value={m.unit} onChange={(u) => updMat(m._k, { unit: u })} />
-                  <input className="field data" placeholder="Ratio" value={m.ratio ?? ''} onChange={(e) => updMat(m._k, { ratio: e.target.value })} />
-                  <div className="flex items-center gap-1">
-                    {allowVary && <VaryToggle on={!!m.vary} onClick={() => markVary('mat', m._k, !m.vary)} />}
-                    <RemoveBtn onClick={() => setMats((ms) => ms.filter((x) => x._k !== m._k))} />
+                {m.fromBatch ? (
+                  <div className="grid grid-cols-[1fr] gap-2 rounded-lg border border-[#6C5CE0]/25 bg-[#6C5CE0]/[0.05] p-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_auto]">
+                    <div className="sm:col-span-1">
+                      <div className="mb-1 flex items-center gap-1.5 text-2xs font-semibold" style={{ color: '#5A4BD0' }}><Boxes size={12} /> From batch</div>
+                      <Combobox value={m.name || ''} onChange={(v) => pickBatch(m._k, v)} options={batchOptions} placeholder="Pick a batch…" />
+                    </div>
+                    <div><div className="mb-1 text-2xs text-subtle">Portion used</div><input className="field data" type="number" step="any" inputMode="decimal" placeholder="e.g. 1.5" value={m.mass_g ?? ''} onChange={(e) => updMat(m._k, { mass_g: e.target.value === '' ? null : parseFloat(e.target.value) })} /></div>
+                    <div><div className="mb-1 text-2xs text-subtle">Unit</div><UnitToggle value={m.unit} onChange={(u) => updMat(m._k, { unit: u })} /></div>
+                    <div className="flex items-end"><RemoveBtn onClick={() => setMats((ms) => ms.filter((x) => x._k !== m._k))} /></div>
                   </div>
-                </div>
-                {m.vary && <VaryValues values={m.values ?? []} unitLabel={m.unit} onChange={(vals) => updMat(m._k, { values: vals })} />}
+                ) : (
+                  <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1fr)_92px_84px_92px_auto]">
+                    <Combobox value={m.name || ''} onChange={(v) => updMat(m._k, { name: v })} options={chemNames} onCreate={(v) => addChemicalByName(v)} placeholder="Chemical" createLabel={(v) => `Add “${v}” to chemicals`} />
+                    <input className="field data" type="number" step="any" inputMode="decimal" placeholder={m.vary ? 'varies ↓' : 'Amount'} disabled={!!m.vary} value={m.vary ? '' : m.mass_g ?? ''} onChange={(e) => updMat(m._k, { mass_g: e.target.value === '' ? null : parseFloat(e.target.value) })} />
+                    <UnitToggle value={m.unit} onChange={(u) => updMat(m._k, { unit: u })} />
+                    <input className="field data" placeholder="Ratio" value={m.ratio ?? ''} onChange={(e) => updMat(m._k, { ratio: e.target.value })} />
+                    <div className="flex items-center gap-1">
+                      {allowVary && <VaryToggle on={!!m.vary} onClick={() => markVary('mat', m._k, !m.vary)} />}
+                      <RemoveBtn onClick={() => setMats((ms) => ms.filter((x) => x._k !== m._k))} />
+                    </div>
+                  </div>
+                )}
+                {m.vary && !m.fromBatch && <VaryValues values={m.values ?? []} unitLabel={m.unit} onChange={(vals) => updMat(m._k, { values: vals })} />}
               </div>
             ))}
+            <button type="button" onClick={() => setMats((ms) => [...ms, { ...blankMat(st.stage), fromBatch: true }])} className="btn-soft-violet h-8 w-fit px-3 text-xs"><Boxes size={14} /> Use a batch</button>
           </RowSection>
 
           <div className="mt-4">

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-  ResponsiveContainer, ScatterChart, Scatter, BarChart, Bar, LineChart, Line,
+  ResponsiveContainer, ScatterChart, Scatter, BarChart, Bar, LineChart, Line, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ZAxis, Cell, LabelList, ReferenceLine, ReferenceArea,
 } from 'recharts'
-import { LineChart as LineIcon, ScatterChart as ScatterIcon, BarChart3, Download, Filter, X, Search, Check, Target, Coins } from 'lucide-react'
+import { LineChart as LineIcon, ScatterChart as ScatterIcon, BarChart3, Download, Filter, X, Search, Check, Target, Coins, PieChart as PieIcon, TrendingUp, GitCompareArrows } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import type { FullExperiment, Benchmark } from '../lib/types'
 import { FullLoader, EmptyState, Tabs, Segmented, MetricPill, ChartWatermark } from '../components/ui'
 import { METRICS, METRIC_COLOR, sampleMetrics, metricValue, formulationCost } from '../lib/metrics'
-import { projectShort } from '../lib/projects'
+import { PROJECTS, projectShort } from '../lib/projects'
 import { cx, colorFor, parseNum, downloadCSV } from '../lib/utils'
 
 const GRID = '#ECEAE3'
@@ -17,6 +17,8 @@ const AXIS = '#9AA0A6'
 const tickStyle = { fontSize: 11, fill: '#6C7077', fontFamily: 'JetBrains Mono, monospace' }
 const tickBold = { fontSize: 12, fill: '#15181E', fontFamily: 'JetBrains Mono, monospace', fontWeight: 600 }
 const legendStyle = { fontSize: 12, paddingTop: 8, fontWeight: 600 }
+// Top-aligned legend — keeps series names clear of the bottom x-axis title/labels.
+const legendTop = { verticalAlign: 'top' as const, align: 'center' as const, height: 30, wrapperStyle: { fontSize: 12, paddingBottom: 10, fontWeight: 600 } }
 
 export function Graphs() {
   const { loading } = useData()
@@ -31,11 +33,14 @@ export function Graphs() {
         <p className="mt-1 text-sm text-muted">Compare samples, break results down by work package, material or method, and benchmark performance and cost.</p>
       </div>
       <div className="mt-5">
-        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'breakdown', label: 'Breakdown' }, { key: 'matrices', label: 'Matrices' }]} />
+        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'breakdown', label: 'Breakdown' }, { key: 'relationships', label: 'Relationships' }, { key: 'distribution', label: 'Distribution' }, { key: 'trends', label: 'Trends' }, { key: 'matrices', label: 'Matrices' }]} />
       </div>
       <div className="mt-5 animate-fadeIn">
         {tab === 'compare' && <CompareTab initial={initialCompare} />}
         {tab === 'breakdown' && <BreakdownTab />}
+        {tab === 'relationships' && <RelationshipsTab />}
+        {tab === 'distribution' && <DistributionTab />}
+        {tab === 'trends' && <TrendsTab />}
         {tab === 'matrices' && <MatricesTab />}
       </div>
     </div>
@@ -91,12 +96,12 @@ function CompareTab({ initial }: { initial?: string[] }) {
         ) : (
           <div className="relative h-[420px] w-full sm:h-[460px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <BarChart data={data} margin={{ top: 24, right: 12, bottom: 40, left: 4 }} barGap={3} barCategoryGap={data.length > 8 ? '16%' : '26%'}>
+              <BarChart data={data} margin={{ top: 8, right: 12, bottom: 40, left: 4 }} barGap={3} barCategoryGap={data.length > 8 ? '16%' : '26%'}>
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 6 ? -20 : 0} textAnchor={data.length > 6 ? 'end' : 'middle'} height={data.length > 6 ? 56 : 36} />
                 <YAxis tick={tickStyle} stroke={AXIS} width={52} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
                 <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<CompareTip />} />
-                <Legend wrapperStyle={legendStyle} />
+                <Legend {...legendTop} />
                 {metricKeys.map((k) => (
                   <Bar key={k} dataKey={k} name={k} fill={METRIC_COLOR[k]} radius={[5, 5, 0, 0]} maxBarSize={56} isAnimationActive>
                     {data.length <= 8 && <LabelList dataKey={k} position="top" style={{ fontSize: 11, fontWeight: 700, fill: METRIC_COLOR[k], fontFamily: 'JetBrains Mono, monospace' }} formatter={(v: any) => (v == null ? '' : v)} />}
@@ -207,13 +212,13 @@ function CrcAupMatrix() {
       {pts.length === 0 ? <NoData msg="No experiments have both CRC and AUP recorded yet." /> : (
         <div className="relative h-[440px] w-full sm:h-[480px]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-            <ScatterChart margin={{ top: 12, right: 18, bottom: 36, left: 8 }}>
+            <ScatterChart margin={{ top: 8, right: 18, bottom: 36, left: 8 }}>
               <CartesianGrid stroke={GRID} />
               <XAxis type="number" dataKey="x" name="CRC" tick={tickStyle} stroke={AXIS} label={{ value: 'CRC (g/g)', position: 'insideBottom', offset: -16, style: { fontSize: 12, fill: '#6C7077', fontWeight: 600 } }} />
               <YAxis type="number" dataKey="y" name="AUP" tick={tickStyle} stroke={AXIS} width={56} label={{ value: 'AUP (g/g)', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
               <ZAxis range={[64, 64]} />
               <Tooltip content={<MatrixTip xl="CRC" yl="AUP" />} />
-              <Legend wrapperStyle={legendStyle} />
+              <Legend {...legendTop} />
               {Object.entries(groups).map(([k, d]) => <Scatter key={k} name={k} data={d as any[]} fill={colorFor(k)} fillOpacity={0.75} />)}
               {bmPts.length > 0 && <Scatter name="Benchmarks" data={bmPts} fill="#0B1F3A" shape="diamond" />}
             </ScatterChart>
@@ -538,6 +543,235 @@ function SampleTip({ active, payload, metric }: any) {
       <div className="data mb-0.5 font-semibold text-ink">{p.label}</div>
       {p.desc && <div className="mb-1 max-w-[200px] truncate text-muted">{p.desc}</div>}
       <div><span className="text-subtle">{metric}: </span><span className="data text-ink">{p.value} g/g</span></div>
+    </div>
+  )
+}
+
+/* =====================================================================
+   RELATIONSHIPS — scatter of a result (FSC/CRC/AUP) vs a formulation
+   factor (a material's amount, cost, or another metric) + best-fit trend.
+   ===================================================================== */
+const round2 = (x: number) => Math.round(x * 100) / 100
+function projColor(short: string) { const p = PROJECTS.find((p) => projectShort(p.code) === short || p.label === short); return p?.color ?? colorFor(short) }
+
+function RelationshipsTab() {
+  const { experiments, chemicals } = useData()
+  const [metric, setMetric] = useState<'FSC' | 'CRC' | 'AUP'>('FSC')
+  const [xKey, setXKey] = useState<string>('cost')
+  const materials = useMemo(() => {
+    const c = new Map<string, number>()
+    experiments.forEach((e) => { const names = new Set(e.experiment_materials.map((m) => m.name).filter(Boolean) as string[]); names.forEach((n) => c.set(n, (c.get(n) ?? 0) + 1)) })
+    return [...c.entries()].filter(([, n]) => n >= 3).sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n }))
+  }, [experiments])
+  const X_BASE = [{ value: 'cost', label: 'Cost per kg' }, { value: 'FSC', label: 'FSC (g/g)' }, { value: 'CRC', label: 'CRC (g/g)' }, { value: 'AUP', label: 'AUP (g/g)' }]
+  const xLabel = xKey.startsWith('mat:') ? `${xKey.slice(4)} amount (g)` : X_BASE.find((o) => o.value === xKey)?.label ?? xKey
+
+  const xOf = (e: FullExperiment): number | null => {
+    if (xKey === 'cost') return formulationCost(e, chemicals).costPerKg ?? null
+    if (xKey === 'FSC' || xKey === 'CRC' || xKey === 'AUP') return sampleMetrics(e)[xKey]
+    if (xKey.startsWith('mat:')) { const nm = xKey.slice(4); const mm = e.experiment_materials.filter((m) => m.name === nm); return mm.length ? mm.reduce((s, m) => s + (m.mass_g ?? 0), 0) : null }
+    return null
+  }
+  const points = useMemo(() => experiments.map((e) => { const x = xOf(e); const y = sampleMetrics(e)[metric]; return x != null && y != null ? { x, y, label: `EN${e.en}`, project: e.project } : null }).filter(Boolean) as { x: number; y: number; label: string; project: string | null }[], [experiments, xKey, metric, chemicals]) // eslint-disable-line
+
+  const fit = useMemo(() => {
+    const n = points.length; if (n < 2) return null
+    const mx = points.reduce((s, p) => s + p.x, 0) / n, my = points.reduce((s, p) => s + p.y, 0) / n
+    let num = 0, den = 0; points.forEach((p) => { num += (p.x - mx) * (p.y - my); den += (p.x - mx) ** 2 })
+    if (den === 0) return null
+    const slope = num / den, intercept = my - slope * mx
+    let ssRes = 0, ssTot = 0; points.forEach((p) => { ssRes += (p.y - (slope * p.x + intercept)) ** 2; ssTot += (p.y - my) ** 2 })
+    const xs = points.map((p) => p.x), xmin = Math.min(...xs), xmax = Math.max(...xs)
+    return { slope, r2: ssTot === 0 ? 0 : 1 - ssRes / ssTot, seg: [{ x: xmin, y: slope * xmin + intercept }, { x: xmax, y: slope * xmax + intercept }] }
+  }, [points])
+  const color = METRIC_COLOR[metric]
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-3.5">
+        <div className="flex items-center gap-2"><span className="text-xs font-medium text-muted">Result (Y):</span>
+          {(['FSC', 'CRC', 'AUP'] as const).map((k) => <button key={k} onClick={() => setMetric(k)} className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold transition', metric === k ? 'text-white' : 'bg-black/[0.04] text-muted')} style={metric === k ? { background: METRIC_COLOR[k] } : undefined}>{k}</button>)}
+        </div>
+        <div className="w-full max-w-xs"><Select label="Factor (X)" value={xKey} onChange={setXKey} options={[...X_BASE.map((o) => o.value), ...materials.map((m) => `mat:${m.name}`)]} labels={Object.fromEntries([...X_BASE.map((o) => [o.value, o.label]), ...materials.map((m) => [`mat:${m.name}`, `Amount · ${m.name} (${m.n})`])])} /></div>
+      </div>
+      <div className="card p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-sm font-semibold">{metric} vs {xLabel}</h3>
+          {fit && <span className="data text-2xs text-subtle">trend R² = {fit.r2.toFixed(2)} · slope {fit.slope.toFixed(3)}</span>}
+        </div>
+        {points.length < 2 ? <NoData msg="Not enough samples have both values recorded for this combination yet." /> : (
+          <div className="relative h-[460px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <ScatterChart margin={{ top: 12, right: 20, bottom: 44, left: 8 }}>
+                <CartesianGrid stroke={GRID} />
+                <XAxis type="number" dataKey="x" name={xLabel} tick={tickStyle} stroke={AXIS} label={{ value: xLabel, position: 'insideBottom', offset: -16, style: { fontSize: 12, fill: '#6C7077', fontWeight: 600 } }} />
+                <YAxis type="number" dataKey="y" name={metric} tick={tickStyle} stroke={AXIS} width={52} label={{ value: `${metric} (g/g)`, angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                <Tooltip content={<RelTip xl={xLabel} yl={metric} />} />
+                {fit && <ReferenceLine ifOverflow="extendDomain" segment={fit.seg as any} stroke="#0B1F3A" strokeDasharray="5 4" strokeWidth={1.5} />}
+                <Scatter data={points} fillOpacity={0.72}>{points.map((p, i) => <Cell key={i} fill={p.project ? projColor(projectShort(p.project)) : color} />)}</Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+            <ChartWatermark />
+          </div>
+        )}
+        <p className="mt-2 text-2xs text-subtle">Each dot is a sample (coloured by work package). The dashed line is the best-fit trend — R² near 1 means a strong relationship.</p>
+      </div>
+    </div>
+  )
+}
+function RelTip({ active, payload, xl, yl }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0].payload
+  return <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-pop"><div className="data mb-0.5 font-semibold text-ink">{p.label}</div><div className="text-muted">{xl}: <span className="data text-ink">{round2(p.x)}</span></div><div className="text-muted">{yl}: <span className="data text-ink">{p.y} g/g</span></div></div>
+}
+
+/* =====================================================================
+   DISTRIBUTION — pie of the experiment mix + histogram of a metric.
+   ===================================================================== */
+function DistributionTab() {
+  const { experiments } = useData()
+  const [dim, setDim] = useState<'project' | 'method' | 'owner'>('project')
+  const [metric, setMetric] = useState<'FSC' | 'CRC' | 'AUP'>('FSC')
+
+  const pieData = useMemo(() => {
+    const m = new Map<string, number>()
+    experiments.forEach((e) => { const k = dim === 'project' ? (e.project ? projectShort(e.project) : 'No WP') : dim === 'method' ? (e.experiment_type || 'Untyped') : (e.owner || 'Unassigned'); m.set(k, (m.get(k) ?? 0) + 1) })
+    return [...m.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value)
+  }, [experiments, dim])
+  const total = pieData.reduce((s, d) => s + d.value, 0)
+
+  const hist = useMemo(() => {
+    const vals = experiments.map((e) => sampleMetrics(e)[metric]).filter((v): v is number => v != null)
+    if (!vals.length) return []
+    const min = Math.min(...vals), max = Math.max(...vals)
+    if (min === max) return [{ bin: `${min}`, count: vals.length }]
+    const bins = 8, w = (max - min) / bins
+    const arr = Array.from({ length: bins }, (_, i) => ({ lo: min + i * w, hi: min + (i + 1) * w, count: 0 }))
+    vals.forEach((v) => { let i = Math.floor((v - min) / w); if (i >= bins) i = bins - 1; if (i < 0) i = 0; arr[i].count++ })
+    return arr.map((b) => ({ bin: `${Math.round(b.lo)}–${Math.round(b.hi)}`, count: b.count }))
+  }, [experiments, metric])
+
+  return (
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+      <div className="card p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold"><PieIcon size={15} className="text-brand" /> Experiment mix</h3>
+          <Segmented size="sm" value={dim} onChange={(v) => setDim(v as any)} options={[{ value: 'project', label: 'Work package' }, { value: 'method', label: 'Method' }, { value: 'owner', label: 'Owner' }]} />
+        </div>
+        {pieData.length === 0 ? <NoData msg="No experiments yet." /> : (
+          <div className="relative h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="52%" outerRadius={118} innerRadius={56} paddingAngle={2} label={(e: any) => `${Math.round((e.value / total) * 100)}%`} labelLine={false}>
+                  {pieData.map((d, i) => <Cell key={i} fill={dim === 'project' ? projColor(d.name) : colorFor(d.name)} />)}
+                </Pie>
+                <Tooltip content={<PieTip total={total} />} />
+                <Legend {...legendTop} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <p className="mt-1 text-2xs text-subtle">{total} experiments · share by {dim === 'project' ? 'work package' : dim}.</p>
+      </div>
+
+      <div className="card p-4">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="flex items-center gap-1.5 text-sm font-semibold"><BarChart3 size={15} style={{ color: METRIC_COLOR[metric] }} /> {metric} distribution</h3>
+          <div className="flex gap-1.5">{(['FSC', 'CRC', 'AUP'] as const).map((k) => <button key={k} onClick={() => setMetric(k)} className={cx('rounded-lg px-2.5 py-1 text-xs font-semibold transition', metric === k ? 'text-white' : 'bg-black/[0.04] text-muted')} style={metric === k ? { background: METRIC_COLOR[k] } : undefined}>{k}</button>)}</div>
+        </div>
+        {hist.length === 0 ? <NoData msg={`No ${metric} values recorded yet.`} /> : (
+          <div className="relative h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={hist} margin={{ top: 16, right: 12, bottom: 46, left: 4 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="bin" tick={tickStyle} stroke={AXIS} interval={0} angle={-20} textAnchor="end" height={56} />
+                <YAxis allowDecimals={false} tick={tickStyle} stroke={AXIS} width={36} label={{ value: 'samples', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<HistTip metric={metric} />} />
+                <Bar dataKey="count" fill={METRIC_COLOR[metric]} radius={[4, 4, 0, 0]} maxBarSize={60}><LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 700, fill: METRIC_COLOR[metric], fontFamily: 'JetBrains Mono, monospace' }} /></Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        <p className="mt-1 text-2xs text-subtle">How many samples fall in each {metric} band (g/g).</p>
+      </div>
+    </div>
+  )
+}
+function PieTip({ active, payload, total }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0]
+  return <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-pop"><span className="font-semibold text-ink">{p.name}</span><span className="text-muted"> · {p.value} ({Math.round((p.value / total) * 100)}%)</span></div>
+}
+function HistTip({ active, payload, label, metric }: any) {
+  if (!active || !payload?.length) return null
+  return <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-pop"><div className="data font-semibold text-ink">{metric} {label}</div><div className="text-muted">{payload[0].value} sample{payload[0].value === 1 ? '' : 's'}</div></div>
+}
+
+/* =====================================================================
+   TRENDS — performance and activity over time (per month).
+   ===================================================================== */
+function monthLabel(k: string) { const [y, m] = k.split('-'); return new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }) }
+function TrendsTab() {
+  const { experiments, benchmarks } = useData()
+  const [metric, setMetric] = useState<'FSC' | 'CRC' | 'AUP'>('FSC')
+  const monthly = useMemo(() => {
+    const m = new Map<string, { sum: number; n: number; count: number }>()
+    experiments.forEach((e) => {
+      if (!e.date) return
+      const key = e.date.slice(0, 7)
+      const cur = m.get(key) ?? { sum: 0, n: 0, count: 0 }
+      cur.count++
+      const v = sampleMetrics(e)[metric]; if (v != null) { cur.sum += v; cur.n++ }
+      m.set(key, cur)
+    })
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([k, v]) => ({ month: k, label: monthLabel(k), avg: v.n ? Math.round((v.sum / v.n) * 10) / 10 : null, count: v.count }))
+  }, [experiments, metric])
+  const hasAvg = monthly.some((d) => d.avg != null)
+  const bm = benchmarks.find((b) => /synth/i.test(b.name)) ?? benchmarks[0]
+  const benchVal = bm ? (metric === 'FSC' ? bm.fsc : metric === 'CRC' ? bm.crc : bm.aup) : null
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-3.5">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold"><TrendingUp size={15} className="text-brand" /> Performance &amp; activity over time</h3>
+        <div className="flex gap-1.5">{(['FSC', 'CRC', 'AUP'] as const).map((k) => <button key={k} onClick={() => setMetric(k)} className={cx('rounded-lg px-3 py-1.5 text-xs font-semibold transition', metric === k ? 'text-white' : 'bg-black/[0.04] text-muted')} style={metric === k ? { background: METRIC_COLOR[k] } : undefined}>{k}</button>)}</div>
+      </div>
+      <div className="card p-4">
+        <h3 className="mb-2 text-sm font-semibold">Average {metric} per month</h3>
+        {!hasAvg ? <NoData msg={`No dated experiments with ${metric} yet.`} /> : (
+          <div className="relative h-[360px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <LineChart data={monthly} margin={{ top: 16, right: 18, bottom: 24, left: 4 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="label" tick={tickStyle} stroke={AXIS} height={28} interval="preserveStartEnd" />
+                <YAxis tick={tickStyle} stroke={AXIS} width={48} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                <Tooltip cursor={{ stroke: GRID }} />
+                {benchVal != null && <ReferenceLine y={benchVal} stroke="#9AA0A6" strokeDasharray="4 4" label={{ value: `SYNTHETIC ${benchVal}`, position: 'right', style: { fontSize: 10, fill: '#9AA0A6' } }} />}
+                <Line type="monotone" dataKey="avg" name={`Avg ${metric}`} stroke={METRIC_COLOR[metric]} strokeWidth={2.5} dot={{ r: 3, fill: METRIC_COLOR[metric] }} connectNulls>
+                  <LabelList dataKey="avg" position="top" style={{ fontSize: 10, fontWeight: 700, fill: METRIC_COLOR[metric], fontFamily: 'JetBrains Mono, monospace' }} />
+                </Line>
+              </LineChart>
+            </ResponsiveContainer>
+            <ChartWatermark />
+          </div>
+        )}
+      </div>
+      <div className="card p-4">
+        <h3 className="mb-2 text-sm font-semibold">Experiments logged per month</h3>
+        {monthly.length === 0 ? <NoData msg="No dated experiments yet." /> : (
+          <div className="relative h-[260px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={monthly} margin={{ top: 14, right: 18, bottom: 24, left: 4 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="label" tick={tickStyle} stroke={AXIS} height={28} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={tickStyle} stroke={AXIS} width={36} />
+                <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} />
+                <Bar dataKey="count" name="Experiments" fill="#0E8A94" radius={[4, 4, 0, 0]} maxBarSize={44}><LabelList dataKey="count" position="top" style={{ fontSize: 10, fontWeight: 700, fill: '#0A6E76', fontFamily: 'JetBrains Mono, monospace' }} /></Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

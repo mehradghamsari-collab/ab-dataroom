@@ -16,6 +16,7 @@ export type AmountUnit = 'g' | 'mL'
 export type Stage = 'bulk' | 'surface'
 
 export interface Material {
+  batch_id?: string | null
   id?: string
   experiment_id?: string
   position: number | null
@@ -177,6 +178,23 @@ export interface SupplierSample {
   viscosity: string | null
   colour: string | null
   experiment_ids: string[]
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BatchComponent { name: string; amount: number | null; unit: string }
+export interface Batch {
+  id: string
+  code: string | null
+  name: string
+  description: string | null
+  composition: BatchComponent[]
+  total_made: string | null
+  dried_yield: string | null
+  prepared_date: string | null
+  owner: string | null
   notes: string | null
   created_by: string | null
   created_at: string

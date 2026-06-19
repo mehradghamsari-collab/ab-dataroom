@@ -262,3 +262,23 @@ Run **`supabase/migration_v4.sql`** once in the Supabase SQL Editor (safe to re-
 
 - **Multi-line check-ins.** The morning-goal / day-update box is now a proper text area: **Enter** starts a new line, and you post with the **Post** button (or ⌘/Ctrl + Enter). Line breaks are preserved in the feed.
 - **Supplier samples (Library → Supplier samples).** A catalogue of raw materials received from external suppliers. For each one you record **cost per ton, degree of substitution, purity %, viscosity, and colour**, and link the experiments that represent it — the app then shows that material's **performance** (FSC / CRC / AUP) averaged from those experiments. Everyone sees the same catalogue, and it updates live.
+
+---
+
+## v4.1 — Import experiments from Excel
+
+The **Experiments** page has an **Import** button. It reads an `.xlsx`/`.xls`/`.csv` on your device (nothing leaves the browser until you confirm), lets you **match each spreadsheet column** to an experiment field (it auto-guesses from the headers), shows a **preview** of what's new vs. already present, and then creates the new experiments. It de-duplicates on the **EN number**, so re-importing the same file is safe — only genuinely new rows are added. No database change is needed.
+
+Mappable fields: EN (key), date, owner, type/synthesis method, work package, description, repeat, method, and absorbency — either the **raw test masses** (the app calculates FSC/CRC/AUP) or **final g/g values**. Materials and process steps aren't imported yet (they need an agreed column layout — share your sheet and they can be added).
+
+---
+
+## v5 — Batches, richer analysis, legend fix
+
+Run **`supabase/migration_v5.sql`** once in the Supabase SQL Editor (safe to re-run) — it adds the `batches` table and a batch link on materials.
+
+**Batches (make once, use in many experiments).** In **Library → Batches** you create a stock batch — e.g. *"4% Xanthan gum in water"*, composition XG 200 g + water 5000 g, total made 5 L, dried yield 190 g. Then in any experiment's **Materials** section, click **"Use a batch"**, pick the batch, and enter the **portion used** (e.g. 1.5 g) for that step (like surface linking). Each batch shows **how many experiments drew from it**, giving full traceability from a big prep down to every sample that used a piece of it.
+
+**More analysis tools.** The **Plot & analyse** section now has six views: **Compare**, **Breakdown** (averages by group), **Relationships** (scatter of any result vs a formulation factor — a material's amount, cost/kg, or another metric — with a best-fit trend line and R²), **Distribution** (pie of the experiment mix + histogram of a result), **Trends** (average performance and activity per month), and **Matrices** (CRC×AUP and cost-vs-performance).
+
+**Legend fix.** Chart legends (e.g. *Bulk processing / Surface processing / Oven Poly-Condensation / Benchmarks*) now sit above the plot instead of overlapping the x-axis label, across all charts.

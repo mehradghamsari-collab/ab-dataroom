@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Benchmark, Chemical, FullExperiment, NamedItem, RefTable, Person, Checkin, ExternalTest, LeaveRequest, WeeklyGoal, SupplierSample } from '../lib/types'
+import type { Benchmark, Chemical, FullExperiment, NamedItem, RefTable, Person, Checkin, ExternalTest, LeaveRequest, WeeklyGoal, SupplierSample, Batch } from '../lib/types'
 import { useAuth } from './AuthContext'
 
 interface DataValue {
@@ -9,6 +9,7 @@ interface DataValue {
   chemicals: Chemical[]
   benchmarks: Benchmark[]
   supplierSamples: SupplierSample[]
+  batches: Batch[]
   types: NamedItem[]
   processes: NamedItem[]
   measures: NamedItem[]
@@ -38,6 +39,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [chemicals, setChemicals] = useState<Chemical[]>([])
   const [benchmarks, setBenchmarks] = useState<Benchmark[]>([])
   const [supplierSamples, setSupplierSamples] = useState<SupplierSample[]>([])
+  const [batches, setBatches] = useState<Batch[]>([])
   const [types, setTypes] = useState<NamedItem[]>([])
   const [processes, setProcesses] = useState<NamedItem[]>([])
   const [measures, setMeasures] = useState<NamedItem[]>([])
@@ -72,6 +74,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     setBenchmarks((bm as Benchmark[]) ?? [])
     const { data: ss } = await supabase.from('supplier_samples').select('*').order('name')
     setSupplierSamples((ss as SupplierSample[]) ?? [])
+    const { data: ba } = await supabase.from('batches').select('*').order('created_at', { ascending: false })
+    setBatches((ba as Batch[]) ?? [])
   }, [])
 
   const refetchTeam = useCallback(async () => {
@@ -127,6 +131,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'result_types' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'benchmarks' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'supplier_samples' }, bRef)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'batches' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'checkins' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'external_tests' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, bTeam)
@@ -168,6 +173,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     chemicals,
     benchmarks,
     supplierSamples,
+    batches,
     types,
     processes,
     measures,
