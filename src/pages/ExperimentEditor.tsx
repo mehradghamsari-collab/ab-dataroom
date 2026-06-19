@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage, Batch, Observation } from '../lib/types'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
-import { Modal, Spinner, TypePill, OwnerAvatar, MetricPill, useToast, useConfirm } from '../components/ui'
+import { Modal, Spinner, TypePill, OwnerAvatar, MetricPill, Segmented, useToast, useConfirm } from '../components/ui'
 import { Combobox } from '../components/Combobox'
 import { cx, fmtDate, parseNum, todayISO } from '../lib/utils'
 import { sampleMetrics, formulationCost, computeFSC, computeCRC, computeAUP, ABS_CONST, METRIC_COLOR } from '../lib/metrics'
@@ -20,6 +20,11 @@ type ObsRow = Observation & { _k: string }
 const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, batch_id: null, fromBatch: false, vary: false, values: [] })
 const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage, vary: false, values: [] })
 const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', value: '', value_num: null, comment: '' })
+// canonical absorbency result names (final, already-calculated values)
+const isFsc = (n: string) => /^fsc in saline/i.test(n)
+const isCrc = (n: string) => /^crc in saline/i.test(n)
+const isAup = (n: string) => /^aup in saline/i.test(n)
+const isCanonMetric = (n?: string | null) => !!n && (isFsc(n) || isCrc(n) || isAup(n))
 const blankObs = (): ObsRow => ({ _k: k(), position: null, attribute: '', value: '', stage: null })
 const DEFAULT_ATTRS = ['Colour', 'Texture', 'Final structure', 'Consistency', 'Clarity', 'Odour', 'Solubility', 'Foaming', 'General evaluation', 'Outcome']
 
@@ -220,7 +225,14 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const [procs, setProcs] = useState<ProcRow[]>(
     experiment ? (experiment.experiment_processes.map((p) => ({ ...p, _k: k() })) as ProcRow[]) : [blankProc(null)],
   )
-  const [res, setRes] = useState<ResRow[]>(experiment ? (experiment.experiment_results.map((r) => ({ ...r, _k: k() })) as ResRow[]) : [])
+  const initRes = experiment?.experiment_results ?? []
+  const pickVal = (test: (n: string) => boolean) => { const row = initRes.find((r) => r.result_type && test(r.result_type)); return row ? String(row.value_num ?? row.value ?? '') : '' }
+  const [finalFsc, setFinalFsc] = useState(pickVal(isFsc))
+  const [finalCrc, setFinalCrc] = useState(pickVal(isCrc))
+  const [finalAup, setFinalAup] = useState(pickVal(isAup))
+  const [res, setRes] = useState<ResRow[]>(experiment ? (initRes.filter((r) => !isCanonMetric(r.result_type)).map((r) => ({ ...r, _k: k() })) as ResRow[]) : [])
+  const hasReadingInit = (experiment?.fsc_mass ?? null) !== null || (experiment?.crc_mass ?? null) !== null || (experiment?.aup_mass ?? null) !== null
+  const [absMode, setAbsMode] = useState<'final' | 'reading'>(hasReadingInit ? 'reading' : 'final')
   const [obs, setObs] = useState<ObsRow[]>(experiment ? ((experiment.experiment_observations ?? []).map((o) => ({ ...o, _k: k() })) as ObsRow[]) : [])
   const [busy, setBusy] = useState(false)
 
@@ -297,9 +309,16 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null, batch_id: m.batch_id ?? null }))
       const cleanProcs = procsFiltered.map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
+      const absFinalRows = absMode === 'final'
+        ? ([['FSC in saline (g/g)', finalFsc], ['CRC in saline (g/g)', finalCrc], ['AUP in saline (0.7 PSI) (g/g)', finalAup]] as const)
+          .filter(([, v]) => String(v).trim() !== '')
+          .map(([name, v]) => ({ position: 0, result_type: name, value: String(v).trim(), value_num: parseNum(String(v)), comment: null }))
+        : []
+      const cleanResFull = [...cleanRes, ...absFinalRows].map((r, i) => ({ ...r, position: i + 1 }))
       const cleanObs = obs.filter((o) => o.attribute?.trim() || o.value?.trim()).map((o, i) => ({ position: i + 1, attribute: o.attribute?.trim() || null, value: o.value?.trim() || null, stage: null }))
 
-      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: discontinued ? null : fscMass, crc_mass: discontinued ? null : crcMass, aup_mass: discontinued ? null : aupMass }
+      const noMass = (v: number | null) => (discontinued || absMode === 'final' ? null : v)
+      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: noMass(fscMass), crc_mass: noMass(crcMass), aup_mass: noMass(aupMass) }
 
       // ----- Varying factor → create a separate experiment per value (new only) -----
       const vMatIdx = matsFiltered.findIndex((m) => m.vary && m.values?.some((v) => v.trim() !== ''))
@@ -368,7 +387,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
         const ins = await Promise.all([
           cleanMats.length ? supabase.from('experiment_materials').insert(withId(cleanMats)) : null,
           cleanProcs.length ? supabase.from('experiment_processes').insert(withId(cleanProcs)) : null,
-          cleanRes.length ? supabase.from('experiment_results').insert(withId(cleanRes)) : null,
+          cleanResFull.length ? supabase.from('experiment_results').insert(withId(cleanResFull)) : null,
           cleanObs.length ? supabase.from('experiment_observations').insert(withId(cleanObs)) : null,
         ])
         const err = ins.find((r) => r && r.error)?.error
@@ -499,7 +518,12 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       {!discontinued && (
         <>
           <div className="rounded-xl border border-orange/25 bg-orange-tint/25 p-3.5">
-            <div className="mb-1 flex items-center gap-2"><Scale size={15} className="text-orange" /><h3 className="text-sm font-semibold">Absorbency <span className="font-normal text-subtle">· auto-calculated</span></h3></div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2"><Scale size={15} className="text-orange" /><h3 className="text-sm font-semibold">Absorbency</h3></div>
+              {!(allowVary && varyCount >= 1) && (
+                <Segmented size="sm" value={absMode} onChange={(v) => setAbsMode(v as 'final' | 'reading')} options={[{ value: 'final', label: 'Final values' }, { value: 'reading', label: 'From readings' }]} />
+              )}
+            </div>
             {allowVary && varyCount >= 1 ? (
               <>
                 <p className="mb-3 text-xs text-muted">Enter the test masses for each value in the series — each row becomes that sample’s FSC, CRC and AUP.</p>
@@ -517,6 +541,15 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
                       </div>
                     )
                   })}
+                </div>
+              </>
+            ) : absMode === 'final' ? (
+              <>
+                <p className="mb-3 text-xs text-muted">Enter the final absorbency you already calculated (g absorbed per g dry gel). These save straight as the experiment’s results.</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <FinalAbs mkey="FSC" value={finalFsc} setValue={setFinalFsc} label="FSC in saline" />
+                  <FinalAbs mkey="CRC" value={finalCrc} setValue={setFinalCrc} label="CRC in saline" />
+                  <FinalAbs mkey="AUP" value={finalAup} setValue={setFinalAup} label="AUP in saline (0.7 PSI)" />
                 </div>
               </>
             ) : (
@@ -678,6 +711,20 @@ function AbsInput({ mkey, reading, setReading, compute, label, caption, hint }: 
       <input className="field data mt-2" type="number" step="any" inputMode="decimal" placeholder="mass (g)" value={reading ?? ''} onChange={(e) => setReading(e.target.value === '' ? null : parseFloat(e.target.value))} />
       <p className="mt-1.5 text-2xs leading-tight text-subtle">{caption}</p>
       <p className="data text-[10px] leading-tight text-subtle/80">{hint}</p>
+    </div>
+  )
+}
+
+function FinalAbs({ mkey, value, setValue, label }: { mkey: 'FSC' | 'CRC' | 'AUP'; value: string; setValue: (v: string) => void; label: string }) {
+  const color = METRIC_COLOR[mkey]
+  return (
+    <div className="rounded-lg border border-line bg-surface p-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-bold tracking-wide" style={{ color }}>{label}</span>
+        <span className="text-2xs text-subtle">g/g</span>
+      </div>
+      <input className="field data mt-2" type="number" step="any" inputMode="decimal" placeholder="final value" value={value} onChange={(e) => setValue(e.target.value)} />
+      <p className="mt-1.5 text-2xs leading-tight text-subtle">Already-calculated result</p>
     </div>
   )
 }

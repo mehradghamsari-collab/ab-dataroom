@@ -51,26 +51,43 @@ export function Graphs() {
 /* =====================================================================
    COMPARE — pick experiments, choose metrics, grouped bar chart
    ===================================================================== */
+function resultNum(e: FullExperiment, re: RegExp): number | null {
+  const row = e.experiment_results.find((r) => r.result_type && re.test(r.result_type))
+  if (!row) return null
+  if (row.value_num != null) return row.value_num
+  const m = String(row.value ?? '').replace(/,/g, '').match(/-?\d+\.?\d*/)
+  return m ? parseFloat(m[0]) : null
+}
+type PlotKey = 'FSC' | 'CRC' | 'AUP' | 'FSCDI' | 'AUP03'
+const PLOT_METRICS: { key: PlotKey; label: string; color: string; get: (e: FullExperiment) => number | null }[] = [
+  { key: 'FSC', label: 'FSC saline', color: '#0E8A94', get: (e) => metricValue(e, 'FSC') },
+  { key: 'CRC', label: 'CRC saline', color: '#6C5CE0', get: (e) => metricValue(e, 'CRC') },
+  { key: 'AUP', label: 'AUP saline 0.7', color: '#FF4700', get: (e) => metricValue(e, 'AUP') },
+  { key: 'FSCDI', label: 'FSC DI', color: '#0A6E76', get: (e) => resultNum(e, /^fsc in di/i) },
+  { key: 'AUP03', label: 'AUP 0.3', color: '#E8A100', get: (e) => resultNum(e, /aup.*0\.3|^aup at 0\.3/i) },
+]
+
 function CompareTab({ initial }: { initial?: string[] }) {
   const { experiments } = useData()
-  const withMetrics = useMemo(() => experiments.filter((e) => { const m = sampleMetrics(e); return m.FSC !== null || m.CRC !== null || m.AUP !== null }), [experiments])
+  const withMetrics = useMemo(() => experiments.filter((e) => PLOT_METRICS.some((pm) => pm.get(e) !== null)), [experiments])
   const [picked, setPicked] = useState<string[]>(initial ?? [])
-  const [activeMetrics, setActiveMetrics] = useState<Record<'FSC' | 'CRC' | 'AUP', boolean>>({ FSC: true, CRC: true, AUP: true })
+  const [activeMetrics, setActiveMetrics] = useState<Record<PlotKey, boolean>>({ FSC: true, CRC: true, AUP: true, FSCDI: false, AUP03: false })
 
-  // preselect from a suggestion if provided
   useEffect(() => { if (initial && initial.length) setPicked(initial) }, [initial])
-  // default: pick the most recent few
   useEffect(() => {
     if (picked.length === 0 && withMetrics.length) setPicked(withMetrics.slice(0, Math.min(5, withMetrics.length)).map((e) => e.id))
   }, [withMetrics]) // eslint-disable-line
 
   const pickedExps = useMemo(() => picked.map((id) => withMetrics.find((e) => e.id === id)).filter(Boolean) as FullExperiment[], [picked, withMetrics])
-  const metricKeys = (['FSC', 'CRC', 'AUP'] as const).filter((k) => activeMetrics[k])
+  const activeDefs = PLOT_METRICS.filter((pm) => activeMetrics[pm.key])
 
   const data = useMemo(() => pickedExps.map((e) => {
-    const m = sampleMetrics(e)
-    return { label: `EN${e.en}`, desc: e.description || '', FSC: m.FSC, CRC: m.CRC, AUP: m.AUP }
+    const row: any = { label: `EN${e.en}`, desc: e.description || '' }
+    PLOT_METRICS.forEach((pm) => { row[pm.key] = pm.get(e) })
+    return row
   }), [pickedExps])
+
+  const onlyOne = activeDefs.length === 1 ? activeDefs[0] : null
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
@@ -79,33 +96,34 @@ function CompareTab({ initial }: { initial?: string[] }) {
       </div>
 
       <div className="card p-4">
+        <div className="mb-1 text-xs text-muted">Pick one metric to compare it alone (e.g. only CRC, only FSC in DI), or several to see them side by side.</div>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap gap-1.5">
-            {(['FSC', 'CRC', 'AUP'] as const).map((k) => (
-              <button key={k} onClick={() => setActiveMetrics((s) => ({ ...s, [k]: !s[k] }))} className={cx('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all', activeMetrics[k] ? 'text-white' : 'bg-black/[0.04] text-muted')} style={activeMetrics[k] ? { background: METRIC_COLOR[k] } : undefined}>
-                {activeMetrics[k] && <Check size={13} />} {k}
+            {PLOT_METRICS.map((pm) => (
+              <button key={pm.key} onClick={() => setActiveMetrics((s) => ({ ...s, [pm.key]: !s[pm.key] }))} className={cx('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all', activeMetrics[pm.key] ? 'text-white' : 'bg-black/[0.04] text-muted')} style={activeMetrics[pm.key] ? { background: pm.color } : undefined}>
+                {activeMetrics[pm.key] && <Check size={13} />} {pm.label}
               </button>
             ))}
           </div>
-          {data.length > 0 && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => downloadCSV('compare.csv', data.map((d) => ({ EN: d.label, description: d.desc, FSC: d.FSC, CRC: d.CRC, AUP: d.AUP })))}><Download size={13} /> CSV</button>}
+          {data.length > 0 && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => downloadCSV('compare.csv', data.map((d) => { const o: any = { EN: d.label, description: d.desc }; PLOT_METRICS.forEach((pm) => { o[pm.label] = d[pm.key] }); return o }))}><Download size={13} /> CSV</button>}
         </div>
 
         {data.length === 0 ? (
           <NoData msg="Select one or more experiments to compare." />
-        ) : metricKeys.length === 0 ? (
-          <NoData msg="Turn on at least one metric (FSC, CRC, AUP)." />
+        ) : activeDefs.length === 0 ? (
+          <NoData msg="Turn on at least one metric to plot." />
         ) : (
           <div className="relative h-[420px] w-full sm:h-[460px]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart data={data} margin={{ top: 8, right: 12, bottom: 40, left: 4 }} barGap={3} barCategoryGap={data.length > 8 ? '16%' : '26%'}>
                 <CartesianGrid stroke={GRID} vertical={false} />
                 <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 6 ? -20 : 0} textAnchor={data.length > 6 ? 'end' : 'middle'} height={data.length > 6 ? 56 : 36} />
-                <YAxis tick={tickStyle} stroke={AXIS} width={52} label={{ value: 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                <YAxis tick={tickStyle} stroke={AXIS} width={52} label={{ value: onlyOne ? `${onlyOne.label} (g/g)` : 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
                 <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<CompareTip />} />
                 <Legend {...legendTop} />
-                {metricKeys.map((k) => (
-                  <Bar key={k} dataKey={k} name={k} fill={METRIC_COLOR[k]} radius={[5, 5, 0, 0]} maxBarSize={56} isAnimationActive>
-                    {data.length <= 8 && <LabelList dataKey={k} position="top" style={{ fontSize: 11, fontWeight: 700, fill: METRIC_COLOR[k], fontFamily: 'JetBrains Mono, monospace' }} formatter={(v: any) => (v == null ? '' : v)} />}
+                {activeDefs.map((pm) => (
+                  <Bar key={pm.key} dataKey={pm.key} name={pm.label} fill={pm.color} radius={[5, 5, 0, 0]} maxBarSize={56} isAnimationActive>
+                    {data.length <= 8 && <LabelList dataKey={pm.key} position="top" style={{ fontSize: 11, fontWeight: 700, fill: pm.color, fontFamily: 'JetBrains Mono, monospace' }} formatter={(v: any) => (v == null ? '' : v)} />}
                   </Bar>
                 ))}
               </BarChart>
@@ -138,25 +156,37 @@ function CompareTip({ active, payload, label }: any) {
 
 function ExperimentPicker({ all, picked, setPicked }: { all: FullExperiment[]; picked: string[]; setPicked: (v: string[]) => void }) {
   const [q, setQ] = useState('')
+  const [ownerF, setOwnerF] = useState('')
   const toggle = (id: string) => setPicked(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id])
+  const owners = useMemo(() => [...new Set(all.map((e) => e.owner).filter(Boolean) as string[])].sort(), [all])
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase()
-    const base = s ? all.filter((e) => [`en${e.en}`, e.description, e.owner, e.experiment_type].join(' ').toLowerCase().includes(s)) : all
-    return base.slice(0, 80)
-  }, [all, q])
+    let base = all
+    if (ownerF) base = base.filter((e) => (e.owner || '') === ownerF)
+    if (s) base = base.filter((e) => [`en${e.en}`, e.description, e.owner, e.experiment_type].join(' ').toLowerCase().includes(s))
+    return base.slice(0, 120)
+  }, [all, q, ownerF])
 
   return (
-    <div className="card flex max-h-[560px] flex-col p-3.5">
+    <div className="card flex max-h-[600px] flex-col p-3.5">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-sm font-semibold">Experiments</span>
         <span className="data text-xs text-muted">{picked.length} selected</span>
       </div>
+      {owners.length > 0 && (
+        <div className="mb-2">
+          <select className="field h-9 w-full cursor-pointer py-1 text-sm" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}>
+            <option value="">All owners</option>
+            {owners.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+      )}
       <div className="relative mb-2">
         <Search size={15} className="pointer-events-none absolute left-2.5 top-2.5 text-subtle" />
         <input className="field pl-8 text-sm" placeholder="Search to add…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
       <div className="mb-2 flex gap-1.5">
-        <button className="btn-ghost h-7 flex-1 text-xs text-muted" onClick={() => setPicked(filtered.slice(0, 12).map((e) => e.id))}>First 12</button>
+        <button className="btn-ghost h-7 flex-1 text-xs text-muted" onClick={() => setPicked([...new Set([...picked, ...filtered.map((e) => e.id)])])}>Select all shown{ownerF ? ` (${filtered.length})` : ''}</button>
         {picked.length > 0 && <button className="btn-ghost h-7 flex-1 text-xs text-muted" onClick={() => setPicked([])}><X size={12} /> Clear</button>}
       </div>
       <div className="-mx-1 flex-1 space-y-0.5 overflow-y-auto px-1">
@@ -168,6 +198,7 @@ function ExperimentPicker({ all, picked, setPicked }: { all: FullExperiment[]; p
               <span className={cx('grid h-4 w-4 shrink-0 place-items-center rounded border', on ? 'border-brand bg-brand text-white' : 'border-line')}>{on && <Check size={12} />}</span>
               <span className="min-w-0 flex-1">
                 <span className="data text-sm font-medium text-ink">EN{e.en}</span>
+                {e.owner && <span className="ml-1.5 text-2xs text-subtle">{e.owner}</span>}
                 {e.description && <span className="ml-1.5 truncate text-xs text-muted">{e.description}</span>}
               </span>
               <span className="flex shrink-0 gap-1">{(['FSC', 'CRC', 'AUP'] as const).map((k) => m[k] !== null && <span key={k} className="h-1.5 w-1.5 rounded-full" style={{ background: METRIC_COLOR[k] }} />)}</span>

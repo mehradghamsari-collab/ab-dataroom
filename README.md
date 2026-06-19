@@ -379,3 +379,22 @@ No new migration.
 **Import table now wider and clearer.** In *Paste import → Fill a table*, the modal opens extra-wide for the grid, with zebra-striped rows and pinned headers, so the 69-column table is easy to see and scroll. Paste a block of cells from Excel anywhere in the grid and it fills across rows; each row becomes one experiment.
 
 _If the table still doesn't appear after deploying, do a hard refresh (Ctrl/Cmd+Shift+R) so the browser loads the new build._
+
+---
+
+## v5.7 — Results your way, single-metric comparison, owner-filtered plotting, newest-first list
+
+**Final values vs. readings (editor).** The Absorbency box in New/Edit experiment now has a toggle:
+- **Final values** — type the FSC/CRC/AUP you already calculated (g/g); they save straight as the experiment's results, untouched.
+- **From readings** — type the measured masses and the app computes g/g live (the formula is shown on each box).
+Existing experiments open in whichever mode their data was saved in. *(The paste-import table already treats FSC/CRC/AUP as final, already-calculated values and saves them as-is — no change there.)*
+
+**Compare any single metric.** In Graphs → Compare, the metric buttons now include **FSC saline, CRC saline, AUP saline 0.7, FSC DI, and AUP 0.3**. Turn on just one to compare only that metric across samples (e.g. CRC-only, or FSC-in-DI-only), or several for a side-by-side.
+
+**Filter by owner, then pick to plot.** The experiment picker has an **owner** dropdown plus **Select all shown**, so you can narrow to one person's experiments and add them all to the chart in one click.
+
+**Experiments list defaults to newest-first** (by date, then EN). You can still re-sort from the dropdown.
+
+No new migration.
+
+> Note on the readings calculator: the built-in formulas use the lab constants currently set in the app (shown under each input). If those tare/dry-mass constants don't match your exact protocol, tell me the correct formula and I'll set it precisely.

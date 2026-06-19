@@ -36,7 +36,7 @@ export function Experiments() {
   const [projectF, setProjectF] = useState<string[]>([])
   const [status, setStatus] = useState<Status>('all')
   const [mine, setMine] = useState(false)
-  const [sort, setSort] = useState<Sort>('en_desc')
+  const [sort, setSort] = useState<Sort>('date_desc')
   const [showFilters, setShowFilters] = useState(false)
   const [open, setOpen] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -69,7 +69,8 @@ export function Experiments() {
       if (sort === 'en_desc') return (b.en ?? 0) - (a.en ?? 0)
       if (sort === 'en_asc') return (a.en ?? 0) - (b.en ?? 0)
       const da = a.date ?? '', db = b.date ?? ''
-      return sort === 'date_desc' ? db.localeCompare(da) : da.localeCompare(db)
+      const c = sort === 'date_desc' ? db.localeCompare(da) : da.localeCompare(db)
+      return c !== 0 ? c : (b.en ?? 0) - (a.en ?? 0)
     })
     return out
   }, [experiments, q, typeF, ownerF, projectF, status, mine, myKeys, sort])
@@ -128,10 +129,10 @@ export function Experiments() {
         </button>
         <div className="relative">
           <select className="field cursor-pointer appearance-none pr-9" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            <option value="date_desc">Date ↓ (newest first)</option>
+            <option value="date_asc">Date ↑ (oldest first)</option>
             <option value="en_desc">EN ↓ (newest)</option>
             <option value="en_asc">EN ↑ (oldest)</option>
-            <option value="date_desc">Date ↓</option>
-            <option value="date_asc">Date ↑</option>
           </select>
           <ArrowDownUp size={14} className="pointer-events-none absolute right-3 top-3 text-subtle" />
         </div>
