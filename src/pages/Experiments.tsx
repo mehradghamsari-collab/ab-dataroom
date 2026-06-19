@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
 import { ExperimentModal } from './ExperimentEditor'
 import { ImportModal } from './ImportExperiments'
-import { FullLoader, EmptyState, TypePill, OwnerAvatar, MetricPill, Segmented } from '../components/ui'
+import { FullLoader, EmptyState, TypePill, OwnerAvatar, MetricPill, Segmented, Spinner, useToast, useConfirm } from '../components/ui'
+import { supabase } from '../lib/supabase'
 import { sampleMetrics } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
 import { cx, fmtDate } from '../lib/utils'
@@ -25,8 +26,10 @@ function matchText(e: FullExperiment, q: string): boolean {
 }
 
 export function Experiments() {
-  const { experiments, loading, types, owners } = useData()
+  const { experiments, loading, types, owners, refetchExperiments } = useData()
   const { profile } = useAuth()
+  const toast = useToast()
+  const confirm = useConfirm()
   const [q, setQ] = useState('')
   const [typeF, setTypeF] = useState<string[]>([])
   const [ownerF, setOwnerF] = useState<string[]>([])
@@ -39,6 +42,9 @@ export function Experiments() {
   const [importing, setImporting] = useState(false)
   const [active, setActive] = useState<FullExperiment | null>(null)
   const [mode, setMode] = useState<'view' | 'edit' | 'new'>('view')
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [busyDel, setBusyDel] = useState(false)
 
   const myKeys = useMemo(() => {
     const out = new Set<string>()
@@ -72,6 +78,27 @@ export function Experiments() {
   const openNew = () => { setActive(null); setMode('new'); setOpen(true) }
   const activeFilters = typeF.length + ownerF.length + projectF.length + (status !== 'all' ? 1 : 0)
 
+  const shown = useMemo(() => list.slice(0, 400), [list])
+  const toggleSel = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
+  const allShownSelected = shown.length > 0 && shown.every((e) => selected.has(e.id))
+  const toggleAll = () => setSelected((s) => { const n = new Set(s); if (allShownSelected) shown.forEach((e) => n.delete(e.id)); else shown.forEach((e) => n.add(e.id)); return n })
+  const exitSelect = () => { setSelecting(false); setSelected(new Set()) }
+  const onRowClick = (e: FullExperiment) => { if (selecting) toggleSel(e.id); else openExp(e) }
+  const deleteSelected = async () => {
+    const ids = [...selected]; if (!ids.length) return
+    const ok = await confirm({ title: `Delete ${ids.length} experiment${ids.length === 1 ? '' : 's'}?`, message: 'This permanently removes the selected experiments and all of their chemicals, processes, results and observations. This cannot be undone.', confirmLabel: `Delete ${ids.length}`, danger: true })
+    if (!ok) return
+    setBusyDel(true)
+    try {
+      const { data, error } = await supabase.from('experiments').delete().in('id', ids).select('id')
+      if (error) throw error
+      const n = (data as any[])?.length ?? 0
+      await refetchExperiments()
+      exitSelect()
+      toast(n === ids.length ? `Deleted ${n} experiment${n === 1 ? '' : 's'}` : `Deleted ${n} of ${ids.length} — the rest aren't yours to remove`, n > 0 ? 'ok' : 'err')
+    } catch (e: any) { toast(e?.message ?? 'Delete failed', 'err') } finally { setBusyDel(false) }
+  }
+
   if (loading) return <FullLoader label="Loading experiments" />
 
   return (
@@ -82,6 +109,9 @@ export function Experiments() {
           <p className="mt-1 text-sm text-muted"><span className="data font-medium text-ink">{list.length}</span>{list.length !== experiments.length && <span className="text-subtle"> of {experiments.length}</span>} records</p>
         </div>
         <div className="flex items-center gap-2">
+          {experiments.length > 0 && (selecting
+            ? <button className="btn-ghost" onClick={exitSelect}><X size={16} /> Done</button>
+            : <button className="btn-outline" onClick={() => setSelecting(true)}><CheckSquare size={16} /> Select</button>)}
           <button className="btn-outline" onClick={() => setImporting(true)}><ClipboardPaste size={16} /> Paste import</button>
           <button className="btn-primary" onClick={openNew}><Plus size={17} /> New experiment</button>
         </div>
@@ -144,6 +174,7 @@ export function Experiments() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-line bg-paper text-left text-2xs uppercase tracking-wider text-muted">
+                    {selecting && <th className="w-10 px-3 py-2.5"><input type="checkbox" checked={allShownSelected} onChange={toggleAll} className="h-4 w-4 cursor-pointer accent-brand align-middle" title="Select all shown" /></th>}
                     <th className="px-4 py-2.5 font-semibold">EN</th>
                     <th className="px-4 py-2.5 font-semibold">Date</th>
                     <th className="px-4 py-2.5 font-semibold">Owner</th>
@@ -153,10 +184,11 @@ export function Experiments() {
                   </tr>
                 </thead>
                 <tbody>
-                  {list.slice(0, 400).map((e) => {
+                  {shown.map((e) => {
                     const m = sampleMetrics(e)
                     return (
-                      <tr key={e.id} onClick={() => openExp(e)} className={cx('cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-brand-tint/40', e.discontinued && 'opacity-60')}>
+                      <tr key={e.id} onClick={() => onRowClick(e)} className={cx('cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-brand-tint/40', selected.has(e.id) && 'bg-brand-tint/70', e.discontinued && 'opacity-60')}>
+                        {selecting && <td className="px-3 py-2.5" onClick={(ev) => { ev.stopPropagation(); toggleSel(e.id) }}><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSel(e.id)} className="h-4 w-4 cursor-pointer accent-brand align-middle" /></td>}
                         <td className="px-4 py-2.5">
                           <span className="flex items-center gap-2">
                             {e.project && projectByCode(e.project) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: projectByCode(e.project)!.color }} title={projectByCode(e.project)!.label} />}
@@ -184,12 +216,15 @@ export function Experiments() {
 
             {/* Mobile cards */}
             <div className="space-y-2.5 md:hidden">
-              {list.slice(0, 200).map((e, i) => {
+              {shown.slice(0, 200).map((e, i) => {
                 const m = sampleMetrics(e)
                 return (
-                  <button key={e.id} onClick={() => openExp(e)} className={cx('card-hover stagger flex w-full flex-col gap-2 p-3.5 text-left', e.discontinued && 'opacity-70')} style={{ ['--i' as any]: Math.min(i, 12) }}>
+                  <button key={e.id} onClick={() => onRowClick(e)} className={cx('card-hover stagger flex w-full flex-col gap-2 p-3.5 text-left', selected.has(e.id) && 'ring-2 ring-brand', e.discontinued && 'opacity-70')} style={{ ['--i' as any]: Math.min(i, 12) }}>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="data font-semibold text-ink">EN{e.en}</span>
+                      <span className="flex items-center gap-2">
+                        {selecting && <span className={cx('grid h-4 w-4 place-items-center rounded border', selected.has(e.id) ? 'border-brand bg-brand text-white' : 'border-line')}>{selected.has(e.id) && <Check size={11} />}</span>}
+                        <span className="data font-semibold text-ink">EN{e.en}</span>
+                      </span>
                       <TypePill type={e.experiment_type} />
                     </div>
                     {e.description && <p className="text-sm font-medium text-ink">{e.description}</p>}
@@ -208,6 +243,16 @@ export function Experiments() {
           </>
         )}
       </div>
+
+      {selecting && (
+        <div className="pointer-events-none sticky bottom-4 z-30 mt-4 flex justify-center">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 shadow-lg animate-fadeUp">
+            <span className="text-sm"><span className="data font-semibold text-ink">{selected.size}</span> selected</span>
+            <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Clear</button>
+            <button className="btn-danger h-8 px-3 text-xs" onClick={deleteSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><Trash2 size={14} /> Delete</>}</button>
+          </div>
+        </div>
+      )}
 
       <ExperimentModal open={open} experiment={active} initialMode={mode} onClose={() => setOpen(false)} />
       <ImportModal open={importing} onClose={() => setImporting(false)} />

@@ -36,7 +36,7 @@ export function Modal({
   title?: ReactNode
   children: ReactNode
   footer?: ReactNode
-  size?: 'sm' | 'md' | 'lg' | 'xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
 }) {
   useEffect(() => {
     if (!open) return
@@ -49,7 +49,7 @@ export function Modal({
     }
   }, [open, onClose])
   if (!open) return null
-  const widths = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-5xl' }
+  const widths = { sm: 'max-w-sm', md: 'max-w-lg', lg: 'max-w-2xl', xl: 'max-w-5xl', '2xl': 'max-w-7xl' }
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
       <div className="absolute inset-0 bg-ink/35 backdrop-blur-[2px]" onClick={onClose} />

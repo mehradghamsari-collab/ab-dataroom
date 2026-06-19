@@ -327,3 +327,55 @@ Run **`supabase/migration_v7_security.sql`** once in the Supabase SQL Editor (sa
 **On column encryption:** intentionally *not* added. Supabase has deprecated pgsodium/Transparent Column Encryption (operational complexity, easy to misconfigure), databases are already encrypted at rest by default, and encrypting experiment columns would break search/sort/filtering and the analysis charts while protecting only against disk theft (already covered). The data is protected by RLS + at-rest encryption + TLS. For any future *secret* value (e.g. an API key) use Supabase Vault, not column encryption on the dataset.
 
 **Biggest remaining gap (not code):** the login still derives its password from the email address, so anyone who knows a staff email could sign in as them. The real fix is switching to magic-link / one-time-code email login (verifies the person owns the inbox). That's a login-UX change requiring email to be configured in Supabase — recommended as the next security step.
+
+---
+
+## v5.2 — Paste import: all rows + shared batches
+
+Fixes and additions to **Experiments → Paste import**:
+
+- **No more dropped rows.** Previously, pasting *without* a header row made the importer treat the first experiment as a header and silently skip it (4 pasted → 3 read). It now detects whether a header row is present; if not, every row is treated as data and columns are mapped **by position** (EN · date · owner · repeat · type · description), with the **purely-numeric columns read as FSC/CRC/AUP** results. Pasting *with* the header row is still recommended (it also brings in materials and processes).
+- **Shared batch for an optimisation set.** Pasted sets usually share one big batch. In the "Fill rest" step the importer now handles this:
+  - If one of the pasted rows is **Bulk processing**, it's recognised as the **big batch** — the importer offers to create a batch from it and link the other pasted experiments (the continuations) to it.
+  - If there's **no** bulk row, you can tick "These came from a shared batch" and enter the batch once (name, total made, dried yield, composition); all pasted experiments link to it. The batch amount/drying isn't in the spreadsheet, so this is where you supply it.
+
+---
+
+## v5.3 — Header-less pastes map the full tracker layout
+
+The paste importer now knows the lab's exact fixed column order, so a paste **without** a header row brings in everything (not just base + results):
+
+`EN · Date · Owner · Repeat? · Experiment type · Description` (cols 1–6), then **7 chemical triplets** (Name / Mass / Ratio), **12 process triplets** (Process / Measure / Value), **Method**, and **FSC / CRC / AUP / FSC-DI**.
+
+So whether you copy with or without the header row, materials, process steps and results all come in. (If you paste a *trimmed* set of columns without a header, it still reads the base fields and treats the rightmost numeric columns as FSC/CRC/AUP.) Pasting with the header row remains the most robust, since it tolerates any column subset or reordering.
+
+---
+
+## v5.4 — Paste import can enrich experiments that already exist
+
+Previously the importer could only **add new** experiments — if a pasted EN already existed (e.g. it was imported earlier as a bare record), the row was skipped, so its chemicals/processes/results never landed. (The parsing itself was fine, including rows full of empty cells.)
+
+Now, when a pasted EN already exists, the "Fill rest" step offers **"these experiments already exist — fill in their details"** (ticked by default). It updates each existing experiment's **chemicals, processes and results** from the paste; base fields are only overwritten where the paste actually has a value (blank cells don't wipe existing data). The preview tags every row **new** or **update**, and the import can do both at once. So you can paste the full detail rows for already-logged experiments and have them filled in.
+
+---
+
+## v5.5 — Grid import (fill a table, one row = one experiment)
+
+The paste import now opens on a **"Fill a table"** mode by default — a spreadsheet-style grid with your **exact 69 tracker columns** as headers (EN, Date, Owner, Repeat?, Experiment type, Description, 7 chemical Name/Mass/Ratio sets, 12 process Process/Measure/Value sets, Method, and the five results incl. **AUP at 0.3 PSI**), grouped and colour-banded across the top.
+
+- **Each row is one experiment.** Type into cells, or **copy a block of cells straight from Excel and paste** — it spreads across the grid from the focused cell and adds rows as needed. Empty cells are fine.
+- **Add row** / **+5 rows** buttons; hover a row to delete it. The column headers and row numbers stay pinned while you scroll the wide table.
+- Continuing flows into the same **Fill rest → Preview** steps as before, so grid rows get the new/update, work-package and shared-batch handling automatically.
+- The old free-text paste is still available under **"Paste raw text"**.
+
+No new migration.
+
+---
+
+## v5.6 — Select & delete experiments + wider, clearer import table
+
+**Select & delete.** The Experiments page has a **Select** button (top right). Turn it on to get checkboxes on every row (and a "select all shown" box in the header); tick the experiments you want, then use the floating **Delete** bar at the bottom. It asks for confirmation and permanently removes those experiments together with their chemicals, processes, results and observations. (You can only delete experiments you're allowed to — admins can delete any.) **Done** exits select mode.
+
+**Import table now wider and clearer.** In *Paste import → Fill a table*, the modal opens extra-wide for the grid, with zebra-striped rows and pinned headers, so the 69-column table is easy to see and scroll. Paste a block of cells from Excel anywhere in the grid and it fills across rows; each row becomes one experiment.
+
+_If the table still doesn't appear after deploying, do a hard refresh (Ctrl/Cmd+Shift+R) so the browser loads the new build._
