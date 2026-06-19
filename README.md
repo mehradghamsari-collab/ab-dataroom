@@ -313,3 +313,17 @@ Run **`supabase/migration_v6.sql`** once in the Supabase SQL Editor **before dep
 - Each morning goal / day update / weekly goal has **edit and delete** controls (you can edit your own entries; admins can remove any check-in; managers manage goals).
 - **Team today → "Earlier days"** expands the full history of past check-ins, grouped by day.
 - **Goals → "Previous weeks"** shows every past week's goals.
+
+---
+
+## v7 — Security hardening
+
+Run **`supabase/migration_v7_security.sql`** once in the Supabase SQL Editor (safe to re-run, no app/deploy change needed). It adds defense-in-depth on top of the existing Row Level Security:
+
+- **Pins the `search_path` of every privileged (SECURITY DEFINER) function** (`is_approved`, `is_admin`, `is_manager`, `can_edit_experiment`, `get_next_en`, `handle_new_user`). This closes a search-path-shadowing class of attack and clears Supabase's "Function Search Path Mutable" linter warning. Function logic is unchanged.
+- **Restricts the email allow-list table to admins only** — members no longer see who's admin/approved. The signup trigger still works (it runs privileged and bypasses RLS).
+- **Optional** (commented in the file): revoke table privileges from the logged-out `anon` role — pure belt-and-suspenders, since RLS already blocks logged-out access.
+
+**On column encryption:** intentionally *not* added. Supabase has deprecated pgsodium/Transparent Column Encryption (operational complexity, easy to misconfigure), databases are already encrypted at rest by default, and encrypting experiment columns would break search/sort/filtering and the analysis charts while protecting only against disk theft (already covered). The data is protected by RLS + at-rest encryption + TLS. For any future *secret* value (e.g. an API key) use Supabase Vault, not column encryption on the dataset.
+
+**Biggest remaining gap (not code):** the login still derives its password from the email address, so anyone who knows a staff email could sign in as them. The real fix is switching to magic-link / one-time-code email login (verifies the person owns the inbox). That's a login-UX change requiring email to be configured in Supabase — recommended as the next security step.
