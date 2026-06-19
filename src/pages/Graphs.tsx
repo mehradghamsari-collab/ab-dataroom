@@ -4,7 +4,7 @@ import {
   ResponsiveContainer, ScatterChart, Scatter, BarChart, Bar, LineChart, Line, PieChart, Pie,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ZAxis, Cell, LabelList, ReferenceLine, ReferenceArea,
 } from 'recharts'
-import { LineChart as LineIcon, ScatterChart as ScatterIcon, BarChart3, Download, Filter, X, Search, Check, Target, Coins, PieChart as PieIcon, TrendingUp, GitCompareArrows } from 'lucide-react'
+import { LineChart as LineIcon, ScatterChart as ScatterIcon, BarChart3, Download, Filter, X, Search, Check, Target, Coins, PieChart as PieIcon, TrendingUp, GitCompareArrows, Palette } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import type { FullExperiment, Benchmark } from '../lib/types'
 import { FullLoader, EmptyState, Tabs, Segmented, MetricPill, ChartWatermark } from '../components/ui'
@@ -33,13 +33,14 @@ export function Graphs() {
         <p className="mt-1 text-sm text-muted">Compare samples, break results down by work package, material or method, and benchmark performance and cost.</p>
       </div>
       <div className="mt-5">
-        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'breakdown', label: 'Breakdown' }, { key: 'relationships', label: 'Relationships' }, { key: 'distribution', label: 'Distribution' }, { key: 'trends', label: 'Trends' }, { key: 'matrices', label: 'Matrices' }]} />
+        <Tabs active={tab} onChange={setTab} tabs={[{ key: 'compare', label: 'Compare samples' }, { key: 'breakdown', label: 'Breakdown' }, { key: 'relationships', label: 'Relationships' }, { key: 'distribution', label: 'Distribution' }, { key: 'qualitative', label: 'Qualitative' }, { key: 'trends', label: 'Trends' }, { key: 'matrices', label: 'Matrices' }]} />
       </div>
       <div className="mt-5 animate-fadeIn">
         {tab === 'compare' && <CompareTab initial={initialCompare} />}
         {tab === 'breakdown' && <BreakdownTab />}
         {tab === 'relationships' && <RelationshipsTab />}
         {tab === 'distribution' && <DistributionTab />}
+        {tab === 'qualitative' && <QualitativeTab />}
         {tab === 'trends' && <TrendsTab />}
         {tab === 'matrices' && <MatricesTab />}
       </div>
@@ -774,4 +775,80 @@ function TrendsTab() {
       </div>
     </div>
   )
+}
+
+/* =====================================================================
+   QUALITATIVE — frequency & share of observed attributes (colour,
+   texture, structure, evaluation…) across experiments.
+   ===================================================================== */
+function QualitativeTab() {
+  const { experiments } = useData()
+  const allObs = useMemo(() => experiments.flatMap((e) => (e.experiment_observations ?? []).map((o) => ({ attribute: (o.attribute || '').trim(), value: (o.value || '').trim(), en: e.en }))).filter((o) => o.attribute && o.value), [experiments])
+  const attrs = useMemo(() => {
+    const m = new Map<string, number>()
+    allObs.forEach((o) => m.set(o.attribute, (m.get(o.attribute) ?? 0) + 1))
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([a]) => a)
+  }, [allObs])
+  const [attr, setAttr] = useState('')
+  const active = attr && attrs.includes(attr) ? attr : attrs[0] ?? ''
+  const data = useMemo(() => {
+    const m = new Map<string, { label: string; count: number }>()
+    allObs.filter((o) => o.attribute === active).forEach((o) => { const key = o.value.toLowerCase(); const cur = m.get(key) ?? { label: o.value, count: 0 }; cur.count++; m.set(key, cur) })
+    return [...m.values()].sort((a, b) => b.count - a.count)
+  }, [allObs, active])
+  const expWithObs = useMemo(() => experiments.filter((e) => (e.experiment_observations ?? []).length).length, [experiments])
+
+  if (attrs.length === 0) return <div className="card p-4"><NoData msg="No qualitative observations yet — add them on an experiment under “Qualitative observations” (colour, texture, final structure…)." /></div>
+
+  return (
+    <div className="space-y-4">
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-3.5">
+        <div className="flex items-center gap-2 text-sm">
+          <Palette size={15} className="text-orange" /><span className="text-muted">Attribute</span>
+          <select className="field h-9 w-52" value={active} onChange={(e) => setAttr(e.target.value)}>{attrs.map((a) => <option key={a} value={a}>{a}</option>)}</select>
+        </div>
+        <span className="data text-2xs text-subtle">{allObs.length} observations · {expWithObs} experiments</span>
+      </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <div className="card p-4">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><BarChart3 size={15} className="text-orange" /> {active} — frequency</h3>
+          <div className="relative h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <BarChart data={data} margin={{ top: 16, right: 12, bottom: 70, left: 4 }}>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={-28} textAnchor="end" height={84} tickFormatter={(s: string) => (s.length > 16 ? s.slice(0, 15) + '…' : s)} />
+                <YAxis allowDecimals={false} tick={tickStyle} stroke={AXIS} width={36} label={{ value: 'samples', angle: -90, position: 'insideLeft', style: { fontSize: 11, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
+                <Tooltip cursor={{ fill: 'rgba(255,71,0,0.06)' }} content={<QualTip attr={active} />} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]} maxBarSize={64}>
+                  {data.map((d, i) => <Cell key={i} fill={colorFor(d.label)} />)}
+                  <LabelList dataKey="count" position="top" style={{ fontSize: 11, fontWeight: 700, fill: '#15181E', fontFamily: 'JetBrains Mono, monospace' }} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <ChartWatermark />
+          </div>
+        </div>
+        <div className="card p-4">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><PieIcon size={15} className="text-orange" /> {active} — share</h3>
+          <div className="relative h-[400px] w-full">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <PieChart>
+                <Pie data={data} dataKey="count" nameKey="label" cx="50%" cy="50%" outerRadius={118} innerRadius={56} paddingAngle={2}>
+                  {data.map((d, i) => <Cell key={i} fill={colorFor(d.label)} />)}
+                </Pie>
+                <Tooltip content={<QualTip attr={active} />} />
+                <Legend {...legendTop} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+function QualTip({ active, payload, attr }: any) {
+  if (!active || !payload?.length) return null
+  const p = payload[0]
+  const label = p.payload?.label ?? p.name
+  return <div className="rounded-lg border border-line bg-surface px-3 py-2 text-xs shadow-pop"><span className="font-semibold text-ink">{attr}: {label}</span><span className="text-muted"> · {p.value ?? p.payload?.count}</span></div>
 }

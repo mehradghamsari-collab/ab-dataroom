@@ -282,3 +282,34 @@ Run **`supabase/migration_v5.sql`** once in the Supabase SQL Editor (safe to re-
 **More analysis tools.** The **Plot & analyse** section now has six views: **Compare**, **Breakdown** (averages by group), **Relationships** (scatter of any result vs a formulation factor — a material's amount, cost/kg, or another metric — with a best-fit trend line and R²), **Distribution** (pie of the experiment mix + histogram of a result), **Trends** (average performance and activity per month), and **Matrices** (CRC×AUP and cost-vs-performance).
 
 **Legend fix.** Chart legends (e.g. *Bulk processing / Surface processing / Oven Poly-Condensation / Benchmarks*) now sit above the plot instead of overlapping the x-axis label, across all charts.
+
+
+---
+
+## v5.1 — Paste experiments straight from Excel
+
+The **Experiments → Paste import** button now takes a **copy-paste** from the spreadsheet (no file upload). Select your rows in Excel *including the header row*, copy, and paste into the box. The app understands the wide tracker layout natively:
+
+- **EN, Date, Owner, Repeat?, Experiment type, Description, Method** map automatically.
+- All **7 chemical slots** (Name / Mass / Ratio) become materials; surface-linking rows where a chemical is a prior EN (e.g. `EN1, 1.5 g`) import exactly as written, keeping the lineage visible.
+- All **12 process slots** (Process / Measure / Value) become process steps.
+- **FSC / CRC / AUP / FSC-DI** and the **3 extra result slots** become results.
+
+It then asks for the few things the sheet doesn't carry (mainly **Work package**, applied to all pasted rows), shows new-vs-existing by EN, and imports — bringing each experiment's materials, processes and results in one go. De-dupes on EN, so re-pasting is safe.
+
+**Make paste need zero extra input** — add a **`Work package`** column to the tracker (the app auto-detects `Work package` / `Project` / `WP`). With that one column, a paste needs no further input at all.
+
+---
+
+## v6 — Qualitative observations + Overview diary
+
+Run **`supabase/migration_v6.sql`** once in the Supabase SQL Editor **before deploying** (it adds the `experiment_observations` table, which the experiments query now reads).
+
+**Qualitative observations.** Every experiment now has a **Qualitative observations** section (colour, texture, final structure, consistency, general evaluation, outcome… — type your own too). It's for describing a product when it isn't good enough to run quantitative absorbency tests, or just to record what it looked/felt like. Observations show on the experiment view as tags.
+
+**Qualitative analysis.** Plot & analyse has a new **Qualitative** tab: pick an attribute (Colour, Texture…) and see a **frequency bar chart** and a **share pie** of the values recorded across all experiments — e.g. how many batches came out "brittle" vs "rubbery".
+
+**Overview diary.** The **Team today** check-ins and **weekly goals** are now a readable diary:
+- Each morning goal / day update / weekly goal has **edit and delete** controls (you can edit your own entries; admins can remove any check-in; managers manage goals).
+- **Team today → "Earlier days"** expands the full history of past check-ins, grouped by day.
+- **Goals → "Previous weeks"** shows every past week's goals.

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FlaskConical, Gauge, Ban, Layers, TrendingUp, TrendingDown, Trophy, Calendar, ArrowRight, Beaker, Target, Download, DatabaseBackup, CheckCircle2, Sun, Sunset, Sparkles, Plus, Trash2, BarChart3, Send, CalendarDays } from 'lucide-react'
+import { FlaskConical, Gauge, Ban, Layers, TrendingUp, TrendingDown, Trophy, Calendar, ArrowRight, Beaker, Target, Download, DatabaseBackup, CheckCircle2, Sun, Sunset, Sparkles, Plus, Trash2, BarChart3, Send, CalendarDays, Pencil, Check, X, ChevronDown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -10,7 +10,7 @@ import { ExperimentModal } from './ExperimentEditor'
 import { METRIC_COLOR, sampleMetrics, metricValue, hasAnyMetric } from '../lib/metrics'
 import { exportBackupXlsx } from '../lib/backup'
 import { cx, fmtDate, colorFor } from '../lib/utils'
-import { weekStartISO, fmtTime, personName, personById, detectSets } from '../lib/team'
+import { weekStartISO, fmtTime, personName, personById, detectSets, fmtRange, addDays, isoDate } from '../lib/team'
 import { projectShort } from '../lib/projects'
 
 const DAY = 86400000
@@ -284,17 +284,48 @@ function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string
 }
 
 /* ===================== Weekly goals (managers set each Monday) ===================== */
+function GoalRow({ g, canManage, people, onChanged }: { g: WeeklyGoal; canManage: boolean; people: any[]; onChanged: () => void }) {
+  const toast = useToast(); const confirm = useConfirm()
+  const [editing, setEditing] = useState(false); const [text, setText] = useState(g.body); const [busy, setBusy] = useState(false)
+  const save = async () => { if (!text.trim()) return; setBusy(true); const { error } = await supabase.from('weekly_goals').update({ body: text.trim() }).eq('id', g.id); setBusy(false); if (error) return toast(error.message, 'err'); setEditing(false); onChanged() }
+  const del = async () => { if (!(await confirm({ title: 'Remove this goal?', message: 'It will disappear for everyone.', confirmLabel: 'Remove', danger: true }))) return; const { error } = await supabase.from('weekly_goals').delete().eq('id', g.id); if (error) return toast(error.message, 'err'); onChanged() }
+  if (editing) return (
+    <li className="flex items-center gap-2 rounded-lg bg-surface/70 px-3 py-1.5">
+      <input autoFocus className="field flex-1" value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+      <button onClick={save} disabled={busy} className="btn-ghost h-8 w-8 p-0 text-positive"><Check size={15} /></button>
+      <button onClick={() => { setEditing(false); setText(g.body) }} className="btn-ghost h-8 w-8 p-0 text-subtle"><X size={15} /></button>
+    </li>
+  )
+  return (
+    <li className="group/g flex items-start gap-2.5 rounded-lg bg-surface/70 px-3 py-2">
+      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
+      <span className="flex-1 text-sm text-ink">{g.body}</span>
+      <span className="hidden text-2xs text-subtle sm:block">{personName(people, g.created_by)}</span>
+      {canManage && <span className="flex shrink-0 gap-1 opacity-0 transition group-hover/g:opacity-100">
+        <button onClick={() => { setText(g.body); setEditing(true) }} className="text-subtle hover:text-ink"><Pencil size={13} /></button>
+        <button onClick={del} className="text-subtle hover:text-danger"><Trash2 size={13} /></button>
+      </span>}
+    </li>
+  )
+}
+
 function WeeklyGoalsBar() {
   const { weeklyGoals, people, refetchTeam } = useData()
   const { profile, isAdmin } = useAuth()
   const toast = useToast()
-  const confirm = useConfirm()
   const canManage = isAdmin || !!profile?.is_manager
   const wk = weekStartISO()
   const [adding, setAdding] = useState(false)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showPast, setShowPast] = useState(false)
   const goals = useMemo(() => weeklyGoals.filter((g) => g.week_start === wk), [weeklyGoals, wk])
+  const pastWeeks = useMemo(() => {
+    const m = new Map<string, WeeklyGoal[]>()
+    weeklyGoals.filter((g) => g.week_start !== wk).forEach((g) => { const a = m.get(g.week_start) ?? []; a.push(g); m.set(g.week_start, a) })
+    return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+  }, [weeklyGoals, wk])
+  const weekLabel = (ws: string) => fmtRange(ws, isoDate(addDays(new Date(ws + 'T00:00:00'), 6)))
 
   const add = async () => {
     if (!text.trim()) return
@@ -304,12 +335,8 @@ function WeeklyGoalsBar() {
     if (error) return toast(error.message, 'err')
     setText(''); setAdding(false); await refetchTeam(); toast('Goal added for the week')
   }
-  const remove = async (g: WeeklyGoal) => {
-    if (!(await confirm({ title: 'Remove this goal?', message: 'It will disappear for everyone.', confirmLabel: 'Remove', danger: true }))) return
-    await supabase.from('weekly_goals').delete().eq('id', g.id); await refetchTeam()
-  }
 
-  if (goals.length === 0 && !canManage) return null
+  if (goals.length === 0 && pastWeeks.length === 0 && !canManage) return null
   return (
     <div className="mt-5 overflow-hidden rounded-2xl border border-brand/20 bg-gradient-to-br from-brand-tint/70 to-[#EAF1FB] p-4 animate-fadeUp sm:p-5">
       <div className="flex items-center justify-between">
@@ -317,18 +344,9 @@ function WeeklyGoalsBar() {
         {canManage && !adding && <button className="btn-soft-teal h-8 px-2.5 text-xs" onClick={() => setAdding(true)}><Plus size={14} /> Add goal</button>}
       </div>
       {goals.length === 0 ? (
-        <p className="mt-2 text-sm text-muted">{canManage ? 'Set this week’s goals so the whole team sees them.' : 'No goals set yet.'}</p>
+        <p className="mt-2 text-sm text-muted">{canManage ? 'Set this week\u2019s goals so the whole team sees them.' : 'No goals set yet.'}</p>
       ) : (
-        <ul className="mt-3 space-y-1.5">
-          {goals.map((g) => (
-            <li key={g.id} className="flex items-start gap-2.5 rounded-lg bg-surface/70 px-3 py-2">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />
-              <span className="flex-1 text-sm text-ink">{g.body}</span>
-              <span className="hidden text-2xs text-subtle sm:block">{personName(people, g.created_by)}</span>
-              {canManage && <button onClick={() => remove(g)} className="text-subtle transition hover:text-danger"><Trash2 size={13} /></button>}
-            </li>
-          ))}
-        </ul>
+        <ul className="mt-3 space-y-1.5">{goals.map((g) => <GoalRow key={g.id} g={g} canManage={canManage} people={people} onChanged={refetchTeam} />)}</ul>
       )}
       {adding && (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -339,22 +357,73 @@ function WeeklyGoalsBar() {
           </div>
         </div>
       )}
+      {pastWeeks.length > 0 && (
+        <div className="mt-3 border-t border-brand/15 pt-2.5">
+          <button onClick={() => setShowPast((v) => !v)} className="flex w-full items-center justify-between text-xs font-medium text-brand-dark/80 hover:text-brand-dark">
+            <span className="flex items-center gap-1.5"><CalendarDays size={13} /> Previous weeks ({pastWeeks.length})</span>
+            <ChevronDown size={14} className={cx('transition', showPast && 'rotate-180')} />
+          </button>
+          {showPast && (
+            <div className="mt-3 max-h-80 space-y-3 overflow-y-auto pr-1">
+              {pastWeeks.map(([ws, gs]) => (
+                <div key={ws}>
+                  <div className="mb-1 text-2xs font-semibold uppercase tracking-wider text-subtle">Week of {weekLabel(ws)}</div>
+                  <ul className="space-y-1.5">{gs.map((g) => <GoalRow key={g.id} g={g} canManage={canManage} people={people} onChanged={refetchTeam} />)}</ul>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-/* ===================== Daily check-ins (morning goal / day update) ===================== */
+/* ===================== Daily check-ins (diary) ===================== */
+function CheckinLine({ c, own, isAdmin, onChanged }: { c: Checkin; own: boolean; isAdmin: boolean; onChanged: () => void }) {
+  const toast = useToast(); const confirm = useConfirm()
+  const [editing, setEditing] = useState(false); const [text, setText] = useState(c.body); const [busy, setBusy] = useState(false)
+  const Icon = c.kind === 'morning' ? Sun : Sunset
+  const color = c.kind === 'morning' ? 'text-orange' : 'text-brand'
+  const save = async () => { if (!text.trim()) return; setBusy(true); const { error } = await supabase.from('checkins').update({ body: text.trim() }).eq('id', c.id); setBusy(false); if (error) return toast(error.message, 'err'); setEditing(false); onChanged() }
+  const del = async () => { if (!(await confirm({ title: 'Delete this entry?', message: 'It will be removed for everyone.', confirmLabel: 'Delete', danger: true }))) return; const { error } = await supabase.from('checkins').delete().eq('id', c.id); if (error) return toast(error.message, 'err'); onChanged() }
+  if (editing) return (
+    <div className="mt-0.5 flex items-start gap-1.5">
+      <Icon size={12} className={cx('mt-2 shrink-0', color)} />
+      <textarea autoFocus className="field min-h-[44px] flex-1 text-sm" value={text} onChange={(e) => setText(e.target.value)} />
+      <button onClick={save} disabled={busy} className="btn-ghost h-7 w-7 shrink-0 p-0 text-positive"><Check size={14} /></button>
+      <button onClick={() => { setEditing(false); setText(c.body) }} className="btn-ghost h-7 w-7 shrink-0 p-0 text-subtle"><X size={14} /></button>
+    </div>
+  )
+  return (
+    <p className="group/line mt-0.5 flex items-start gap-1.5 text-sm text-muted">
+      <Icon size={12} className={cx('mt-1 shrink-0', color)} />
+      <span className="flex-1 whitespace-pre-wrap">{c.body}</span>
+      <span className="data shrink-0 text-2xs text-subtle">{fmtTime(c.created_at)}</span>
+      {(own || isAdmin) && <span className="flex shrink-0 gap-0.5 opacity-0 transition group-hover/line:opacity-100">
+        {own && <button onClick={() => { setText(c.body); setEditing(true) }} className="text-subtle hover:text-ink"><Pencil size={12} /></button>}
+        <button onClick={del} className="text-subtle hover:text-danger"><Trash2 size={12} /></button>
+      </span>}
+    </p>
+  )
+}
+function groupByUserList(list: Checkin[]): [string, Checkin[]][] {
+  const m = new Map<string, Checkin[]>()
+  list.forEach((c) => { const a = m.get(c.user_id) ?? []; a.push(c); m.set(c.user_id, a) })
+  return [...m.entries()].map(([u, l]) => [u, l.sort((a, b) => (a.created_at < b.created_at ? -1 : 1))] as [string, Checkin[]])
+}
+
 function TeamToday() {
   const { checkins, people, refetchTeam } = useData()
-  const { profile } = useAuth()
+  const { profile, isAdmin } = useAuth()
   const toast = useToast()
   const [kind, setKind] = useState<CheckinKind>('morning')
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
-  const todayStr = new Date().toDateString()
-  const today = useMemo(() => checkins.filter((c) => new Date(c.created_at).toDateString() === todayStr), [checkins, todayStr])
-  // group by user → { morning, update }
+  const todayISO = isoDate(new Date())
+  const today = useMemo(() => checkins.filter((c) => isoDate(new Date(c.created_at)) === todayISO), [checkins, todayISO])
   const byUser = useMemo(() => {
     const m = new Map<string, { morning?: Checkin; update?: Checkin; latest: string }>()
     for (const c of today) {
@@ -366,6 +435,11 @@ function TeamToday() {
     }
     return [...m.entries()].sort((a, b) => (a[1].latest < b[1].latest ? 1 : -1))
   }, [today])
+  const history = useMemo(() => {
+    const days = new Map<string, Checkin[]>()
+    checkins.filter((c) => isoDate(new Date(c.created_at)) !== todayISO).forEach((c) => { const key = isoDate(new Date(c.created_at)); const a = days.get(key) ?? []; a.push(c); days.set(key, a) })
+    return [...days.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1))
+  }, [checkins, todayISO])
 
   const post = async () => {
     if (!text.trim() || !profile) return
@@ -375,9 +449,7 @@ function TeamToday() {
     if (error) return toast(error.message, 'err')
     setText(''); await refetchTeam(); toast(kind === 'morning' ? 'Morning goal posted' : 'Update posted')
   }
-
   const hour = new Date().getHours()
-  // suggest the relevant kind by time of day
   useEffect(() => { setKind(hour < 12 ? 'morning' : 'update') }, []) // eslint-disable-line
 
   return (
@@ -387,20 +459,15 @@ function TeamToday() {
         <span className="text-2xs text-subtle">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span>
       </div>
 
-      {/* composer */}
       <div className="mt-3 rounded-xl border border-line bg-paper/60 p-3">
         <div className="mb-2 inline-flex rounded-lg bg-black/[0.04] p-0.5">
           <button onClick={() => setKind('morning')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'morning' ? 'bg-surface text-orange-dark shadow-card' : 'text-muted')}><Sun size={13} /> Morning goal</button>
           <button onClick={() => setKind('update')} className={cx('inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition', kind === 'update' ? 'bg-surface text-brand-dark shadow-card' : 'text-muted')}><Sunset size={13} /> Day update</button>
         </div>
         <div className="space-y-2">
-          <textarea
-            className="field min-h-[68px] resize-y leading-relaxed"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
+          <textarea className="field min-h-[68px] resize-y leading-relaxed" value={text} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); post() } }}
-            placeholder={kind === 'morning' ? 'What are you focusing on today? (Enter for a new line)' : 'What did you get done / where are you at?'}
-          />
+            placeholder={kind === 'morning' ? 'What are you focusing on today? (Enter for a new line)' : 'What did you get done / where are you at?'} />
           <div className="flex items-center justify-between">
             <span className="text-2xs text-subtle">Enter adds a line · ⌘/Ctrl+Enter posts</span>
             <button className="btn-primary" onClick={post} disabled={busy || !text.trim()}>{busy ? <Spinner className="h-4 w-4" /> : 'Post'}</button>
@@ -408,7 +475,6 @@ function TeamToday() {
         </div>
       </div>
 
-      {/* feed */}
       <div className="mt-4 space-y-3">
         {byUser.length === 0 ? (
           <p className="text-sm text-subtle">No check-ins yet today. Be the first to share your morning goal.</p>
@@ -418,13 +484,42 @@ function TeamToday() {
               <OwnerAvatar name={personName(people, uid)} size={30} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-ink">{personName(people, uid)}{uid === profile?.id && <span className="ml-1 text-2xs font-normal text-subtle">(you)</span>}</div>
-                {v.morning && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sun size={12} className="mt-1 shrink-0 text-orange" /> <span className="flex-1 whitespace-pre-wrap">{v.morning.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.morning.created_at)}</span></p>}
-                {v.update && <p className="mt-0.5 flex items-start gap-1.5 text-sm text-muted"><Sunset size={12} className="mt-1 shrink-0 text-brand" /> <span className="flex-1 whitespace-pre-wrap">{v.update.body}</span> <span className="data shrink-0 text-2xs text-subtle">{fmtTime(v.update.created_at)}</span></p>}
+                {v.morning && <CheckinLine c={v.morning} own={uid === profile?.id} isAdmin={isAdmin} onChanged={refetchTeam} />}
+                {v.update && <CheckinLine c={v.update} own={uid === profile?.id} isAdmin={isAdmin} onChanged={refetchTeam} />}
               </div>
             </div>
           ))
         )}
       </div>
+
+      {history.length > 0 && (
+        <div className="mt-4 border-t border-line pt-3">
+          <button onClick={() => setShowHistory((v) => !v)} className="flex w-full items-center justify-between text-xs font-medium text-muted hover:text-ink">
+            <span className="flex items-center gap-1.5"><CalendarDays size={13} /> Earlier days ({history.length})</span>
+            <ChevronDown size={14} className={cx('transition', showHistory && 'rotate-180')} />
+          </button>
+          {showHistory && (
+            <div className="mt-3 max-h-96 space-y-4 overflow-y-auto pr-1">
+              {history.map(([day, entries]) => (
+                <div key={day}>
+                  <div className="mb-1.5 text-2xs font-semibold uppercase tracking-wider text-subtle">{fmtDate(day)}</div>
+                  <div className="space-y-2.5">
+                    {groupByUserList(entries).map(([uid, list]) => (
+                      <div key={uid} className="flex gap-2.5">
+                        <OwnerAvatar name={personName(people, uid)} size={26} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium text-ink">{personName(people, uid)}{uid === profile?.id && <span className="ml-1 text-2xs font-normal text-subtle">(you)</span>}</div>
+                          {list.map((c) => <CheckinLine key={c.id} c={c} own={uid === profile?.id} isAdmin={isAdmin} onChanged={refetchTeam} />)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

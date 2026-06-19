@@ -72,6 +72,7 @@ export interface FullExperiment extends Experiment {
   experiment_materials: Material[]
   experiment_processes: ProcessStep[]
   experiment_results: ResultEntry[]
+  experiment_observations: Observation[]
 }
 
 export interface Chemical {
@@ -199,4 +200,15 @@ export interface Batch {
   created_by: string | null
   created_at: string
   updated_at: string
+}
+
+
+export interface Observation {
+  id?: string
+  experiment_id?: string
+  position: number | null
+  attribute: string | null
+  value: string | null
+  stage?: string | null
+  created_at?: string
 }

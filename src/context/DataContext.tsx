@@ -30,7 +30,7 @@ interface DataValue {
 const Ctx = createContext<DataValue>(null as unknown as DataValue)
 export const useData = () => useContext(Ctx)
 
-const EXP_SELECT = '*, experiment_materials(*), experiment_processes(*), experiment_results(*)'
+const EXP_SELECT = '*, experiment_materials(*), experiment_processes(*), experiment_results(*), experiment_observations(*)'
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { isApproved } = useAuth()
@@ -124,6 +124,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'experiment_materials' }, bExp)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'experiment_processes' }, bExp)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'experiment_results' }, bExp)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'experiment_observations' }, bExp)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chemicals' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'experiment_types' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'process_names' }, bRef)

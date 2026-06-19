@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, UploadCloud } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
@@ -82,7 +82,7 @@ export function Experiments() {
           <p className="mt-1 text-sm text-muted"><span className="data font-medium text-ink">{list.length}</span>{list.length !== experiments.length && <span className="text-subtle"> of {experiments.length}</span>} records</p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn-outline" onClick={() => setImporting(true)}><UploadCloud size={16} /> Import</button>
+          <button className="btn-outline" onClick={() => setImporting(true)}><ClipboardPaste size={16} /> Paste import</button>
           <button className="btn-primary" onClick={openNew}><Plus size={17} /> New experiment</button>
         </div>
       </div>

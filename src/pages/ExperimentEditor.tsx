@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X, Boxes } from 'lucide-react'
+import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X, Boxes, Palette } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage, Batch } from '../lib/types'
+import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage, Batch, Observation } from '../lib/types'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import { Modal, Spinner, TypePill, OwnerAvatar, MetricPill, useToast, useConfirm } from '../components/ui'
@@ -16,9 +16,12 @@ const k = () => `r${++KEY}`
 type MatRow = Material & { _k: string; vary?: boolean; values?: string[]; fromBatch?: boolean }
 type ProcRow = ProcessStep & { _k: string; vary?: boolean; values?: string[] }
 type ResRow = ResultEntry & { _k: string }
+type ObsRow = Observation & { _k: string }
 const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, batch_id: null, fromBatch: false, vary: false, values: [] })
 const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage, vary: false, values: [] })
 const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', value: '', value_num: null, comment: '' })
+const blankObs = (): ObsRow => ({ _k: k(), position: null, attribute: '', value: '', stage: null })
+const DEFAULT_ATTRS = ['Colour', 'Texture', 'Final structure', 'Consistency', 'Clarity', 'Odour', 'Solubility', 'Foaming', 'General evaluation', 'Outcome']
 
 export function ExperimentModal({ open, experiment, initialMode, onClose }: { open: boolean; experiment: FullExperiment | null; initialMode: Mode; onClose: () => void }) {
   const [mode, setMode] = useState<Mode>(initialMode)
@@ -139,6 +142,19 @@ function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullEx
           <p className="whitespace-pre-wrap rounded-lg border border-line bg-paper px-3.5 py-3 text-sm leading-relaxed text-ink">{e.method}</p>
         </Section>
       )}
+
+      {(e.experiment_observations ?? []).length > 0 && (
+        <Section icon={<Palette size={15} />} title="Qualitative observations">
+          <div className="flex flex-wrap gap-2">
+            {(e.experiment_observations ?? []).map((o, i) => (
+              <div key={i} className="rounded-lg border border-orange/30 bg-orange/[0.06] px-3 py-1.5 text-sm">
+                {o.attribute && <span className="font-semibold text-orange-dark">{o.attribute}: </span>}
+                <span className="text-ink">{o.value || '—'}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
     </div>
   )
 }
@@ -205,6 +221,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
     experiment ? (experiment.experiment_processes.map((p) => ({ ...p, _k: k() })) as ProcRow[]) : [blankProc(null)],
   )
   const [res, setRes] = useState<ResRow[]>(experiment ? (experiment.experiment_results.map((r) => ({ ...r, _k: k() })) as ResRow[]) : [])
+  const [obs, setObs] = useState<ObsRow[]>(experiment ? ((experiment.experiment_observations ?? []).map((o) => ({ ...o, _k: k() })) as ObsRow[]) : [])
   const [busy, setBusy] = useState(false)
 
   const chemNames = useMemo(() => chemicals.map((c) => c.name), [chemicals])
@@ -238,6 +255,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const updMat = (key: string, patch: Partial<MatRow>) => setMats((ms) => ms.map((m) => (m._k === key ? { ...m, ...patch } : m)))
   const updProc = (key: string, patch: Partial<ProcRow>) => setProcs((ps) => ps.map((p) => (p._k === key ? { ...p, ...patch } : p)))
   const updRes = (key: string, patch: Partial<ResRow>) => setRes((rs) => rs.map((r) => (r._k === key ? { ...r, ...patch } : r)))
+  const updObs = (key: string, patch: Partial<ObsRow>) => setObs((os) => os.map((o) => (o._k === key ? { ...o, ...patch } : o)))
 
   // Only one varying factor at a time. Turning one on clears the rest and seeds its
   // values from whatever single value was already typed.
@@ -279,6 +297,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null, batch_id: m.batch_id ?? null }))
       const cleanProcs = procsFiltered.map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
+      const cleanObs = obs.filter((o) => o.attribute?.trim() || o.value?.trim()).map((o, i) => ({ position: i + 1, attribute: o.attribute?.trim() || null, value: o.value?.trim() || null, stage: null }))
 
       const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: discontinued ? null : fscMass, crc_mass: discontinued ? null : crcMass, aup_mass: discontinued ? null : aupMass }
 
@@ -315,6 +334,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
             matsForThis.length ? supabase.from('experiment_materials').insert(matsForThis.map((r) => ({ ...r, experiment_id: id }))) : null,
             procsForThis.length ? supabase.from('experiment_processes').insert(procsForThis.map((r) => ({ ...r, experiment_id: id }))) : null,
             cleanRes.length ? supabase.from('experiment_results').insert(cleanRes.map((r) => ({ ...r, experiment_id: id }))) : null,
+            cleanObs.length ? supabase.from('experiment_observations').insert(cleanObs.map((r) => ({ ...r, experiment_id: id }))) : null,
           ])
           const e2 = ins.find((r) => r && r.error)?.error
           if (e2) throw e2
@@ -335,6 +355,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
           supabase.from('experiment_materials').delete().eq('experiment_id', experiment.id),
           supabase.from('experiment_processes').delete().eq('experiment_id', experiment.id),
           supabase.from('experiment_results').delete().eq('experiment_id', experiment.id),
+          supabase.from('experiment_observations').delete().eq('experiment_id', experiment.id),
         ])
       } else {
         const { data: enData } = await supabase.rpc('get_next_en')
@@ -348,6 +369,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
           cleanMats.length ? supabase.from('experiment_materials').insert(withId(cleanMats)) : null,
           cleanProcs.length ? supabase.from('experiment_processes').insert(withId(cleanProcs)) : null,
           cleanRes.length ? supabase.from('experiment_results').insert(withId(cleanRes)) : null,
+          cleanObs.length ? supabase.from('experiment_observations').insert(withId(cleanObs)) : null,
         ])
         const err = ins.find((r) => r && r.error)?.error
         if (err) throw err
@@ -520,6 +542,19 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
               </div>
             ))}
           </RowSection>
+
+          <div className="mt-4">
+            <RowSection icon={<Palette size={15} />} title="Qualitative observations" tone="orange" onAdd={() => setObs((o) => [...o, blankObs()])} addLabel="Add observation">
+              {obs.length === 0 && <p className="text-sm text-subtle">Describe what the product looks/feels like — colour, texture, final structure, general evaluation. Useful when a sample isn’t good enough for absorbency testing.</p>}
+              {obs.map((o) => (
+                <div key={o._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_auto]">
+                  <Combobox value={o.attribute || ''} onChange={(v) => updObs(o._k, { attribute: v })} options={DEFAULT_ATTRS} placeholder="Attribute (e.g. Colour)" />
+                  <input className="field" placeholder="Observation (e.g. pale yellow, brittle foam)" value={o.value ?? ''} onChange={(e) => updObs(o._k, { value: e.target.value })} />
+                  <RemoveBtn onClick={() => setObs((os) => os.filter((x) => x._k !== o._k))} />
+                </div>
+              ))}
+            </RowSection>
+          </div>
         </>
       )}
 
