@@ -79,38 +79,63 @@ export function hasAnyMetric(exp: FullExperiment): boolean {
 
 // ---- Cost of formulation (preliminary, refined later from the TEA file) ----
 import type { Chemical } from './types'
+import { lookupCost, materialIsBatch } from './materialCosts'
 
 export interface CostResult {
+  // lab basis (kept under the original names so existing callers keep working)
   materialCost: number
   totalCost: number
-  massKg: number // total gram-based mass, in kg
   costPerKg: number | null
+  // explicit lab + large-scale split
+  labCost: number
+  bulkCost: number
+  labTotal: number
+  bulkTotal: number
+  labPerKg: number | null
+  bulkPerKg: number | null
+  massKg: number
   complete: boolean // false if some materials couldn't be priced
+  pricedCount: number
+  unpricedCount: number
+  hasBatch: boolean // formulation references another experiment's batch
 }
 
 export function formulationCost(exp: FullExperiment, chemicals: Chemical[]): CostResult {
-  const priceOf = (name: string | null) => chemicals.find((c) => c.name === name)
-  let materialCost = 0
-  let grams = 0
-  let complete = true
+  let lab = 0, bulk = 0, grams = 0, priced = 0, unpriced = 0
+  let complete = true, hasBatch = false
   for (const m of exp.experiment_materials) {
-    if (m.mass_g && (m as any).unit === 'g') grams += m.mass_g
-    const chem = priceOf(m.name)
-    const unit = (m as any).unit ?? 'g'
-    if (m.mass_g && chem?.price != null && (chem.price_unit ?? 'g') === unit) {
-      materialCost += m.mass_g * chem.price
-    } else if (m.mass_g && m.name) {
-      complete = false
+    const qty = m.mass_g
+    if (qty && ((m as any).unit ?? 'g') === 'g') grams += qty
+    if (materialIsBatch(m.name)) { hasBatch = true; continue }
+    const c = lookupCost(m.name)
+    if (qty != null && c && c.lab != null) {
+      lab += qty * c.lab
+      if (c.bulk != null) bulk += qty * c.bulk
+      priced++
+    } else if (qty != null && m.name) {
+      const chem = chemicals.find((x) => x.name === m.name)
+      if (chem?.price != null) { lab += qty * chem.price; priced++ }
+      else { unpriced++; complete = false }
     }
   }
   const extra = exp.extra_cost ?? 0
-  const totalCost = materialCost + extra
   const massKg = grams / 1000
+  const labTotal = lab + extra
+  const bulkTotal = bulk + extra
   return {
-    materialCost,
-    totalCost,
+    materialCost: lab,
+    totalCost: labTotal,
+    costPerKg: massKg > 0 ? labTotal / massKg : null,
+    labCost: lab,
+    bulkCost: bulk,
+    labTotal,
+    bulkTotal,
+    labPerKg: massKg > 0 ? labTotal / massKg : null,
+    bulkPerKg: massKg > 0 ? bulkTotal / massKg : null,
     massKg,
-    costPerKg: massKg > 0 ? totalCost / massKg : null,
     complete,
+    pricedCount: priced,
+    unpricedCount: unpriced,
+    hasBatch,
   }
 }

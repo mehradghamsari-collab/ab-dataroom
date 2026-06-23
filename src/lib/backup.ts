@@ -94,8 +94,10 @@ export async function exportBackupXlsx(experiments: FullExperiment[], chemicals:
     { header: 'FSC', key: 'FSC', width: 8, numeric: true, color: FSC_C },
     { header: 'CRC', key: 'CRC', width: 8, numeric: true, color: CRC_C },
     { header: 'AUP', key: 'AUP', width: 8, numeric: true, color: AUP_C },
-    { header: 'Cost', key: 'Cost', width: 9, numeric: true },
-    { header: 'Cost/kg', key: 'CostKg', width: 9, numeric: true },
+    { header: 'Lab cost ($)', key: 'Cost', width: 11, numeric: true },
+    { header: 'Lab $/kg', key: 'CostKg', width: 10, numeric: true },
+    { header: 'Bulk cost ($)', key: 'BulkCost', width: 11, numeric: true },
+    { header: 'Bulk $/kg', key: 'BulkKg', width: 10, numeric: true },
     { header: 'Description', key: 'Description', width: 30 },
     { header: 'Method', key: 'Method', width: 46 },
   ]
@@ -106,7 +108,8 @@ export async function exportBackupXlsx(experiments: FullExperiment[], chemicals:
       Project: projectByCode(e.project)?.label ?? '', TwoStep: e.is_two_step ? 'Yes' : '',
       Status: e.discontinued ? 'Discontinued' : 'Active',
       FSC: m.FSC ?? '', CRC: m.CRC ?? '', AUP: m.AUP ?? '',
-      Cost: cost.totalCost > 0 ? Number(cost.totalCost.toFixed(2)) : '', CostKg: cost.costPerKg != null ? Number(cost.costPerKg.toFixed(2)) : '',
+      Cost: cost.labTotal > 0 ? Number(cost.labTotal.toFixed(2)) : '', CostKg: cost.labPerKg != null ? Number(cost.labPerKg.toFixed(2)) : '',
+      BulkCost: cost.bulkTotal > 0 ? Number(cost.bulkTotal.toFixed(3)) : '', BulkKg: cost.bulkPerKg != null ? Number(cost.bulkPerKg.toFixed(3)) : '',
       Description: e.description ?? '', Method: e.method ?? '',
     }
   })

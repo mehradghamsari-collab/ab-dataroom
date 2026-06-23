@@ -199,15 +199,31 @@ function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullEx
         </Section>
       )}
 
-      {(cost.materialCost > 0 || e.extra_cost) && (
+      {(cost.labCost > 0 || cost.bulkCost > 0 || e.extra_cost) && (
         <Section icon={<Coins size={15} />} title="Formulation cost">
-          <div className="flex flex-wrap gap-2">
-            <CostStat label="Materials" value={cost.materialCost} />
-            {e.extra_cost ? <CostStat label="Process / other" value={e.extra_cost} /> : null}
-            <CostStat label="Total" value={cost.totalCost} strong />
-            {cost.costPerKg !== null && <CostStat label="Per kg" value={cost.costPerKg} suffix="/kg" />}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <div className="rounded-xl border border-line bg-paper p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-[#0A6E76]"><span className="h-2 w-2 rounded-full" style={{ background: '#0A6E76' }} /> Lab scale <span className="font-normal text-subtle">· catalog price</span></div>
+              <div className="flex flex-wrap gap-2">
+                <CostStat label="Materials" value={cost.labCost} />
+                {e.extra_cost ? <CostStat label="Process / other" value={e.extra_cost} /> : null}
+                <CostStat label="Total" value={cost.labTotal} strong />
+                {cost.labPerKg !== null && <CostStat label="Per kg" value={cost.labPerKg} suffix="/kg" />}
+              </div>
+            </div>
+            <div className="rounded-xl border p-3" style={{ borderColor: '#FF470033', background: '#FF47000A' }}>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-orange-dark"><span className="h-2 w-2 rounded-full" style={{ background: '#FF4700' }} /> Large scale <span className="font-normal text-subtle">· bulk producer</span></div>
+              <div className="flex flex-wrap gap-2">
+                <CostStat label="Materials" value={cost.bulkCost} />
+                {e.extra_cost ? <CostStat label="Process / other" value={e.extra_cost} /> : null}
+                <CostStat label="Total" value={cost.bulkTotal} strong />
+                {cost.bulkPerKg !== null && <CostStat label="Per kg" value={cost.bulkPerKg} suffix="/kg" />}
+              </div>
+            </div>
           </div>
-          {!cost.complete && <p className="mt-1.5 text-2xs text-subtle">Some materials have no price set — cost is partial. Add prices in Library → Chemicals.</p>}
+          <p className="mt-2 text-2xs text-subtle">Raw-material cost only (USD), from the cost database. Large-scale figures are indicative bulk estimates for screening — confirm with supplier quotes. Production/labour not included.</p>
+          {cost.hasBatch && <p className="mt-1 text-2xs text-subtle">This formulation uses a sub-batch from another experiment — that batch’s cost is counted under its own EN, not here.</p>}
+          {cost.unpricedCount > 0 && <p className="mt-1 text-2xs text-subtle">{cost.unpricedCount} material{cost.unpricedCount === 1 ? '' : 's'} have no price in the database yet — cost is partial.</p>}
         </Section>
       )}
 

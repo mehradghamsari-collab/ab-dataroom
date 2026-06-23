@@ -455,3 +455,17 @@ Reports keep the same template and style. No change to the export layout.
 - **Characterization tab.** A new section for instrument tests — **FTIR, TGA, DSC, NMR, GPC, SEM** (and you can add your own techniques). Pick the experiment, choose the technique, and write a short explanation of the result. Filter by technique and search across results.
 
 Tabs in Experiments: **Experiments · Unfinished · Recently deleted**. Reports and exports are unchanged.
+
+---
+
+## v6.2 — Raw-material cost: lab vs large scale
+
+A material cost database (`material_cost_database.xlsx`) is now built into the app, with a **lab/catalog price** and a **large-scale/bulk price** for each material (USD per g or per mL).
+
+- **Every experiment now shows two formulation costs** — *Lab scale* (catalog) and *Large scale* (bulk) — with totals and cost-per-kg for each, in the experiment view.
+- **Smart name matching.** Materials are matched to the price list even when names differ: supplier/date qualifiers in brackets are ignored, while concentration/MW (NaOH 1M vs 5M, PEG 300 vs 4000) are respected. As requested, **Xanthan gum logged as XG or XN all use the xanthan price, and CMC variants all use the CMC price** (CMS likewise).
+- **Sub-batches** (a material that points to another EN) are excluded from raw-material cost and flagged — that batch is costed under its own EN.
+- **Excel export** now includes Lab cost, Lab $/kg, Bulk cost and Bulk $/kg columns.
+- No database migration is needed for this feature — prices live in the app. DENACOL EX-614B and FAVOR Bio T180 aren't in the file yet, so they currently add $0.
+
+A standalone **`formulation_costs.xlsx`** report is also provided: a per-experiment lab-vs-bulk cost for all 522 experiments, a full material-line breakdown (with SUMIF formulas), the cost database, and notes.
