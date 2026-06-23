@@ -16,6 +16,22 @@ import { cx, fmtDate } from '../lib/utils'
 type Sort = 'en_desc' | 'en_asc' | 'date_desc' | 'date_asc'
 type Status = 'all' | 'active' | 'discontinued'
 
+const fscDIof = (e: FullExperiment): number | null => {
+  const row = e.experiment_results.find((r) => r.result_type && /^fsc in di/i.test(r.result_type))
+  if (!row) return null
+  if (row.value_num != null) return row.value_num
+  const m = String(row.value ?? '').replace(/,/g, '').match(/-?\d+\.?\d*/)
+  return m ? parseFloat(m[0]) : null
+}
+const industryClass = (e: FullExperiment): 'agri' | 'hygiene' | 'other' => {
+  if (e.industry === 'agricultural') return 'agri'
+  if (e.industry === 'hygiene') return 'hygiene'
+  const m = sampleMetrics(e)
+  if (m.FSC != null && m.CRC != null && m.AUP != null) return 'hygiene'
+  if (fscDIof(e) != null) return 'agri'
+  return 'other'
+}
+
 function matchText(e: FullExperiment, q: string): boolean {
   if (!q) return true
   const hay = [
@@ -203,13 +219,16 @@ export function Experiments() {
                 <tbody>
                   {shown.map((e) => {
                     const m = sampleMetrics(e)
+                    const ind = industryClass(e)
+                    const fscdi = ind === 'agri' ? fscDIof(e) : null
                     return (
-                      <tr key={e.id} onClick={() => onRowClick(e)} className={cx('cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-brand-tint/40', selected.has(e.id) && 'bg-brand-tint/70', e.discontinued && 'opacity-60')}>
+                      <tr key={e.id} onClick={() => onRowClick(e)} className={cx('cursor-pointer border-b border-line transition-colors last:border-0', selected.has(e.id) ? 'bg-brand-tint/70' : ind === 'agri' ? 'bg-[#1F9D55]/[0.07] hover:bg-[#1F9D55]/[0.14]' : 'hover:bg-brand-tint/40', e.discontinued && 'opacity-60')}>
                         {selecting && <td className="px-3 py-2.5" onClick={(ev) => { ev.stopPropagation(); toggleSel(e.id) }}><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSel(e.id)} className="h-4 w-4 cursor-pointer accent-brand align-middle" /></td>}
                         <td className="px-4 py-2.5">
                           <span className="flex items-center gap-2">
                             {e.project && projectByCode(e.project) && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: projectByCode(e.project)!.color }} title={projectByCode(e.project)!.label} />}
                             <span className="data font-semibold text-ink">EN{e.en}</span>
+                            {ind === 'agri' && <span className="pill bg-[#1F9D55]/15 text-[#177245]" title="Agricultural SAP">agri</span>}
                             {e.discontinued && <span className="pill bg-black/[0.06] text-muted">disc.</span>}
                           </span>
                         </td>
@@ -219,8 +238,9 @@ export function Experiments() {
                         <td className="max-w-[260px] truncate px-4 py-2.5 text-ink">{e.description || <span className="text-subtle">—</span>}</td>
                         <td className="px-4 py-2.5">
                           <div className="flex justify-end gap-1">
-                            {(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}
-                            {m.FSC === null && m.CRC === null && m.AUP === null && <span className="text-subtle">—</span>}
+                            {ind === 'agri'
+                              ? (fscdi != null ? <span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span> : <span className="text-subtle">—</span>)
+                              : <>{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}{m.FSC === null && m.CRC === null && m.AUP === null && <span className="text-subtle">—</span>}</>}
                           </div>
                         </td>
                       </tr>
@@ -235,12 +255,15 @@ export function Experiments() {
             <div className="space-y-2.5 md:hidden">
               {shown.slice(0, 200).map((e, i) => {
                 const m = sampleMetrics(e)
+                const ind = industryClass(e)
+                const fscdi = ind === 'agri' ? fscDIof(e) : null
                 return (
-                  <button key={e.id} onClick={() => onRowClick(e)} className={cx('card-hover stagger flex w-full flex-col gap-2 p-3.5 text-left', selected.has(e.id) && 'ring-2 ring-brand', e.discontinued && 'opacity-70')} style={{ ['--i' as any]: Math.min(i, 12) }}>
+                  <button key={e.id} onClick={() => onRowClick(e)} className={cx('card-hover stagger flex w-full flex-col gap-2 p-3.5 text-left', selected.has(e.id) && 'ring-2 ring-brand', ind === 'agri' && !selected.has(e.id) && 'bg-[#1F9D55]/[0.06]', e.discontinued && 'opacity-70')} style={{ ['--i' as any]: Math.min(i, 12) }}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="flex items-center gap-2">
                         {selecting && <span className={cx('grid h-4 w-4 place-items-center rounded border', selected.has(e.id) ? 'border-brand bg-brand text-white' : 'border-line')}>{selected.has(e.id) && <Check size={11} />}</span>}
                         <span className="data font-semibold text-ink">EN{e.en}</span>
+                        {ind === 'agri' && <span className="pill bg-[#1F9D55]/15 text-[#177245]">agri</span>}
                       </span>
                       <TypePill type={e.experiment_type} />
                     </div>
@@ -250,9 +273,11 @@ export function Experiments() {
                       {e.project && projectByCode(e.project) && <span className="pill" style={{ background: projectByCode(e.project)!.color + '1A', color: projectByCode(e.project)!.color }}>{projectByCode(e.project)!.code}</span>}
                       {e.discontinued && <span className="pill bg-black/[0.06] text-muted">discontinued</span>}
                     </div>
-                    {(m.FSC !== null || m.CRC !== null || m.AUP !== null) && (
-                      <div className="flex flex-wrap gap-1.5 pt-0.5">{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}</div>
-                    )}
+                    {ind === 'agri'
+                      ? (fscdi != null && <div className="pt-0.5"><span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span></div>)
+                      : (m.FSC !== null || m.CRC !== null || m.AUP !== null) && (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}</div>
+                      )}
                   </button>
                 )
               })}

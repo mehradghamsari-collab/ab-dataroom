@@ -425,3 +425,19 @@ Each class gets its own chart in the report (agricultural: FSC-DI; hygiene: FSC/
 **Visual batch connector in the importer.** In Paste import → Fill rest, when two or more new experiments are detected you now get a **mind-map linker**: mark the experiment that is the *batch* (box icon), then click the others to link them — branches draw out as **arrows** from the batch to its experiments. You can have several batches, switch the active one, or hit **Auto** to link a detected bulk run to the rest. On import each batch is created from its source experiment and the linked experiments are attached to it. The old "shared batch not in the paste" option remains as a fallback.
 
 No new database migration. **Remember to upload `public/report-template.docx` with the rest of the files.**
+
+---
+
+## v6.0 — Industry classes, easier logging, and clearer experiment structure
+
+**Run `migration_v8.sql` once in Supabase before deploying** (adds `industry` and `step2_label` columns; the editor now writes to them).
+
+- **Liquid unit shows "ml".** The material amount unit toggle now reads **g / ml** (the droplet icon is gone).
+- **Ovens in one row.** Add an **oven step** and enter temperature and time (min / hour / days) together in a single row. On save it's split back into the proper separate Temperature and Time columns, so the **Excel export and all columns are unchanged** — this is purely to make logging faster. Editing an oven step shows the combined row again.
+- **Sample industry on every new experiment.** Logging now asks **Agricultural** or **Hygiene**. Agricultural samples capture **FSC in DI water**; hygiene samples capture **FSC / CRC / AUP**. The absorbency inputs switch to match.
+- **Experiments list distinguishes the two.** Agricultural rows are tinted green and tagged "agri", and show their **FSC-DI** value; FSC/CRC/AUP show for hygiene samples only. (Falls back to auto-detection for older records.)
+- **Choose the second step.** For two-step samples you pick what step 2 is — **Surface crosslinking, Bulk crosslinking, Surface coating**, or your own label — and it shows through in the editor, the experiment view, and reports.
+- **Add your own qualitative results.** The observation attribute field now accepts new, free-typed attributes (not just the presets), and you can add as many as you like.
+- **Structure mind-map.** The editor shows a small diagram with arrows from the experiment to its steps, qualitative observations and results, so the connections are visible at a glance.
+
+Reports keep the same template and style. No change to the export layout.

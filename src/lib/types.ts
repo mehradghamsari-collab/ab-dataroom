@@ -60,6 +60,8 @@ export interface Experiment {
   discontinued: boolean
   extra_cost: number | null
   project: string | null
+  industry: 'agricultural' | 'hygiene' | null
+  step2_label: string | null
   fsc_mass: number | null
   crc_mass: number | null
   aup_mass: number | null

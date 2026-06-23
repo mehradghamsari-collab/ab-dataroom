@@ -27,6 +27,8 @@ export function metricsOf(e: FullExperiment) {
   return { fsc: metricValue(e, 'FSC'), crc: metricValue(e, 'CRC'), aup: metricValue(e, 'AUP'), fscDI: resultNum(e, /^fsc in di/i) }
 }
 export function classify(e: FullExperiment): Industry {
+  if (e.industry === 'agricultural') return 'agri'
+  if (e.industry === 'hygiene') return 'hygiene'
   const m = metricsOf(e)
   if (m.fsc != null && m.crc != null && m.aup != null) return 'hygiene'
   if (m.fscDI != null) return 'agri'

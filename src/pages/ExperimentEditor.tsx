@@ -14,16 +14,54 @@ type Mode = 'view' | 'edit' | 'new'
 let KEY = 0
 const k = () => `r${++KEY}`
 type MatRow = Material & { _k: string; vary?: boolean; values?: string[]; fromBatch?: boolean }
-type ProcRow = ProcessStep & { _k: string; vary?: boolean; values?: string[] }
+type ProcRow = ProcessStep & { _k: string; vary?: boolean; values?: string[]; oven?: boolean; temp?: string; timeVal?: string; timeUnit?: 'min' | 'h' | 'days' }
 type ResRow = ResultEntry & { _k: string }
 type ObsRow = Observation & { _k: string }
 const blankMat = (stage: Stage | null): MatRow => ({ _k: k(), position: null, name: '', mass_g: null, unit: 'g', ratio: '', stage, batch_id: null, fromBatch: false, vary: false, values: [] })
 const blankProc = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: '', measure: '', value: '', stage, vary: false, values: [] })
+const blankOven = (stage: Stage | null): ProcRow => ({ _k: k(), position: null, process: 'Oven', measure: '', value: '', stage, oven: true, temp: '', timeVal: '', timeUnit: 'h' })
+const isOvenName = (s?: string | null) => /oven|furnace|kiln/i.test(s || '')
+const timeUnitOf = (measure?: string | null): 'min' | 'h' | 'days' => (/min/i.test(measure || '') ? 'min' : /day/i.test(measure || '') ? 'days' : 'h')
+const timeMeasure = (u?: string) => (u === 'min' ? 'Time (min)' : u === 'days' ? 'Time (days)' : 'Time (h)')
+// Collapse stored oven Temperature + Time records (same process, same stage) into one combined row.
+function loadProcs(list: ProcessStep[]): ProcRow[] {
+  const sorted = [...list].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  const out: ProcRow[] = []
+  const open: Record<string, number> = {}
+  for (const p of sorted) {
+    const oven = isOvenName(p.process) && /temperature|time/i.test(p.measure || '')
+    if (oven) {
+      const key = `${p.stage ?? ''}|${(p.process || '').toLowerCase()}`
+      let idx = open[key]
+      if (idx == null) { out.push({ ...blankOven((p.stage ?? null) as Stage | null), process: p.process || 'Oven' }); idx = out.length - 1; open[key] = idx }
+      if (/temperature/i.test(p.measure || '')) out[idx].temp = p.value ?? ''
+      else { out[idx].timeVal = p.value ?? ''; out[idx].timeUnit = timeUnitOf(p.measure) }
+      if (out[idx].temp && out[idx].timeVal) delete open[key]
+    } else out.push({ ...(p as any), _k: k(), vary: false, values: [] })
+  }
+  return out
+}
+// Expand UI rows back to stored records: an oven row → up to two records (Temperature, Time).
+function expandProcs(rows: ProcRow[], twoStep: boolean): { process: string | null; measure: string | null; value: string | null; stage: Stage | null; position: number }[] {
+  const out: { process: string | null; measure: string | null; value: string | null; stage: Stage | null }[] = []
+  rows.forEach((p) => {
+    const stage = twoStep ? ((p.stage ?? 'bulk') as Stage) : null
+    if (p.oven) {
+      const proc = p.process?.trim() || 'Oven'
+      if (p.temp?.trim()) out.push({ process: proc, measure: 'Temperature (°C)', value: p.temp.trim(), stage })
+      if (p.timeVal?.trim()) out.push({ process: proc, measure: timeMeasure(p.timeUnit), value: p.timeVal.trim(), stage })
+    } else if (p.process?.trim() || p.measure?.trim() || p.value?.trim()) {
+      out.push({ process: p.process || null, measure: p.measure || null, value: p.value || null, stage })
+    }
+  })
+  return out.map((r, i) => ({ ...r, position: i + 1 }))
+}
 const blankRes = (): ResRow => ({ _k: k(), position: null, result_type: '', value: '', value_num: null, comment: '' })
 // canonical absorbency result names (final, already-calculated values)
 const isFsc = (n: string) => /^fsc in saline/i.test(n)
 const isCrc = (n: string) => /^crc in saline/i.test(n)
 const isAup = (n: string) => /^aup in saline/i.test(n)
+const isFscDI = (n: string) => /^fsc in di/i.test(n)
 const isCanonMetric = (n?: string | null) => !!n && (isFsc(n) || isCrc(n) || isAup(n))
 const blankObs = (): ObsRow => ({ _k: k(), position: null, attribute: '', value: '', stage: null })
 const DEFAULT_ATTRS = ['Colour', 'Texture', 'Final structure', 'Consistency', 'Clarity', 'Odour', 'Solubility', 'Foaming', 'General evaluation', 'Outcome']
@@ -66,11 +104,12 @@ function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullEx
   const cost = formulationCost(e, chemicals)
   const res = [...e.experiment_results].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
 
+  const s2 = e.step2_label || 'Surface'
   const matStages: { label: string; rows: Material[] }[] = e.is_two_step
-    ? [{ label: 'Step 1 · Bulk', rows: byStage(e.experiment_materials, 'bulk') }, { label: 'Step 2 · Surface', rows: byStage(e.experiment_materials, 'surface') }]
+    ? [{ label: 'Step 1 · Bulk', rows: byStage(e.experiment_materials, 'bulk') }, { label: `Step 2 · ${s2}`, rows: byStage(e.experiment_materials, 'surface') }]
     : [{ label: '', rows: byStage(e.experiment_materials, null).length ? byStage(e.experiment_materials, null) : [...e.experiment_materials] }]
   const procStages: { label: string; rows: ProcessStep[] }[] = e.is_two_step
-    ? [{ label: 'Step 1 · Bulk', rows: byStage(e.experiment_processes, 'bulk') }, { label: 'Step 2 · Surface', rows: byStage(e.experiment_processes, 'surface') }]
+    ? [{ label: 'Step 1 · Bulk', rows: byStage(e.experiment_processes, 'bulk') }, { label: `Step 2 · ${s2}`, rows: byStage(e.experiment_processes, 'surface') }]
     : [{ label: '', rows: byStage(e.experiment_processes, null).length ? byStage(e.experiment_processes, null) : [...e.experiment_processes] }]
 
   return (
@@ -209,6 +248,8 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const [description, setDescription] = useState(experiment?.description ?? '')
   const [method, setMethod] = useState(experiment?.method ?? '')
   const [twoStep, setTwoStep] = useState(experiment?.is_two_step ?? false)
+  const [step2Label, setStep2Label] = useState(experiment?.step2_label ?? 'Surface crosslinking')
+  const [industry, setIndustry] = useState<'agricultural' | 'hygiene' | ''>(experiment?.industry ?? '')
   const [discontinued, setDiscontinued] = useState(experiment?.discontinued ?? false)
   const [extraCost, setExtraCost] = useState<number | null>(experiment?.extra_cost ?? null)
   const [fscMass, setFscMass] = useState<number | null>(experiment?.fsc_mass ?? null)
@@ -223,14 +264,15 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
     experiment ? (experiment.experiment_materials.map((m) => ({ ...m, _k: k(), unit: (m as any).unit ?? 'g', fromBatch: !!(m as any).batch_id })) as MatRow[]) : [blankMat(null)],
   )
   const [procs, setProcs] = useState<ProcRow[]>(
-    experiment ? (experiment.experiment_processes.map((p) => ({ ...p, _k: k() })) as ProcRow[]) : [blankProc(null)],
+    experiment ? loadProcs(experiment.experiment_processes) : [blankProc(null)],
   )
   const initRes = experiment?.experiment_results ?? []
   const pickVal = (test: (n: string) => boolean) => { const row = initRes.find((r) => r.result_type && test(r.result_type)); return row ? String(row.value_num ?? row.value ?? '') : '' }
   const [finalFsc, setFinalFsc] = useState(pickVal(isFsc))
   const [finalCrc, setFinalCrc] = useState(pickVal(isCrc))
   const [finalAup, setFinalAup] = useState(pickVal(isAup))
-  const [res, setRes] = useState<ResRow[]>(experiment ? (initRes.filter((r) => !isCanonMetric(r.result_type)).map((r) => ({ ...r, _k: k() })) as ResRow[]) : [])
+  const [finalFscDI, setFinalFscDI] = useState(pickVal(isFscDI))
+  const [res, setRes] = useState<ResRow[]>(experiment ? (initRes.filter((r) => !isCanonMetric(r.result_type) && !isFscDI(r.result_type || '')).map((r) => ({ ...r, _k: k() })) as ResRow[]) : [])
   const hasReadingInit = (experiment?.fsc_mass ?? null) !== null || (experiment?.crc_mass ?? null) !== null || (experiment?.aup_mass ?? null) !== null
   const [absMode, setAbsMode] = useState<'final' | 'reading'>(hasReadingInit ? 'reading' : 'final')
   const [obs, setObs] = useState<ObsRow[]>(experiment ? ((experiment.experiment_observations ?? []).map((o) => ({ ...o, _k: k() })) as ObsRow[]) : [])
@@ -305,24 +347,27 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
     setBusy(true)
     try {
       const matsFiltered = mats.filter((m) => m.name?.trim())
-      const procsFiltered = procs.filter((p) => p.process?.trim() || p.measure?.trim() || p.value?.trim())
+      const procsFiltered = procs.filter((p) => p.oven ? (p.temp?.trim() || p.timeVal?.trim()) : (p.process?.trim() || p.measure?.trim() || p.value?.trim()))
       const cleanMats = matsFiltered.map((m, i) => ({ position: i + 1, name: m.name!.trim(), mass_g: m.mass_g, unit: m.unit, ratio: m.ratio || null, stage: twoStep ? m.stage ?? 'bulk' : null, batch_id: m.batch_id ?? null }))
-      const cleanProcs = procsFiltered.map((p, i) => ({ position: i + 1, process: p.process || null, measure: p.measure || null, value: p.value || null, stage: twoStep ? p.stage ?? 'bulk' : null }))
+      const cleanProcs = expandProcs(procs, twoStep)
       const cleanRes = res.filter((r) => r.result_type?.trim()).map((r, i) => ({ position: i + 1, result_type: r.result_type!.trim(), value: r.value || null, value_num: parseNum(r.value), comment: r.comment || null }))
-      const absFinalRows = absMode === 'final'
-        ? ([['FSC in saline (g/g)', finalFsc], ['CRC in saline (g/g)', finalCrc], ['AUP in saline (0.7 PSI) (g/g)', finalAup]] as const)
-          .filter(([, v]) => String(v).trim() !== '')
-          .map(([name, v]) => ({ position: 0, result_type: name, value: String(v).trim(), value_num: parseNum(String(v)), comment: null }))
-        : []
+      const absFinalRows = industry === 'agricultural'
+        ? (finalFscDI.trim() ? [{ position: 0, result_type: 'FSC in DI water (g/g)', value: finalFscDI.trim(), value_num: parseNum(finalFscDI), comment: null }] : [])
+        : absMode === 'final'
+          ? ([['FSC in saline (g/g)', finalFsc], ['CRC in saline (g/g)', finalCrc], ['AUP in saline (0.7 PSI) (g/g)', finalAup]] as const)
+            .filter(([, v]) => String(v).trim() !== '')
+            .map(([name, v]) => ({ position: 0, result_type: name, value: String(v).trim(), value_num: parseNum(String(v)), comment: null }))
+          : []
       const cleanResFull = [...cleanRes, ...absFinalRows].map((r, i) => ({ ...r, position: i + 1 }))
       const cleanObs = obs.filter((o) => o.attribute?.trim() || o.value?.trim()).map((o, i) => ({ position: i + 1, attribute: o.attribute?.trim() || null, value: o.value?.trim() || null, stage: null }))
 
-      const noMass = (v: number | null) => (discontinued || absMode === 'final' ? null : v)
-      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, fsc_mass: noMass(fscMass), crc_mass: noMass(crcMass), aup_mass: noMass(aupMass) }
+      const noMass = (v: number | null) => (discontinued || industry === 'agricultural' || absMode === 'final' ? null : v)
+      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, industry: industry || null, step2_label: twoStep ? (step2Label || null) : null, fsc_mass: noMass(fscMass), crc_mass: noMass(crcMass), aup_mass: noMass(aupMass) }
 
       // ----- Varying factor → create a separate experiment per value (new only) -----
       const vMatIdx = matsFiltered.findIndex((m) => m.vary && m.values?.some((v) => v.trim() !== ''))
       const vProcIdx = vMatIdx < 0 ? procsFiltered.findIndex((p) => p.vary && p.values?.some((v) => v.trim() !== '')) : -1
+      const varyProcK = vProcIdx >= 0 ? procsFiltered[vProcIdx]._k : null
       const series = vMatIdx >= 0 ? matsFiltered[vMatIdx].values! : vProcIdx >= 0 ? procsFiltered[vProcIdx].values! : []
       const seriesVals = series.map((v) => v.trim()).filter(Boolean)
 
@@ -332,7 +377,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
         const createdEns: number[] = []
         for (const raw of seriesVals) {
           const matsForThis = cleanMats.map((mm, i) => (i === vMatIdx ? { ...mm, mass_g: parseNum(raw) } : mm))
-          const procsForThis = cleanProcs.map((pp, i) => (i === vProcIdx ? { ...pp, value: raw } : pp))
+          const procsForThis = expandProcs(procs.map((p) => (p._k === varyProcK ? { ...p, value: raw } : p)), twoStep)
           const suffix = vMatIdx >= 0 ? `${raw} ${unit}`.trim() : `${raw}`
           const desc = baseDesc ? `${baseDesc} — ${suffix}` : `${(cleanMats[vMatIdx]?.name ?? 'run')} ${suffix}`.trim()
           const { data: enData } = await supabase.rpc('get_next_en')
@@ -404,7 +449,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   }
 
   const stages: { stage: Stage | null; label: string }[] = twoStep
-    ? [{ stage: 'bulk', label: 'Step 1 · Bulk preparation' }, { stage: 'surface', label: 'Step 2 · Surface crosslinking' }]
+    ? [{ stage: 'bulk', label: 'Step 1 · Bulk preparation' }, { stage: 'surface', label: `Step 2 · ${step2Label || 'Surface crosslinking'}` }]
     : [{ stage: null, label: '' }]
 
   return (
@@ -427,6 +472,17 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
           ))}</div>
         </div>
         <div className="sm:col-span-2"><label className="label">Description</label><input className="field" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Short label, e.g. MD4-1" /></div>
+        <div className="sm:col-span-2">
+          <label className="label">Sample industry <span className="font-normal text-subtle">— which testing route?</span></label>
+          <div className="flex gap-1.5">
+            {([['agricultural', 'Agricultural', 'FSC in DI water'], ['hygiene', 'Hygiene', 'FSC · CRC · AUP']] as const).map(([val, lab, sub]) => (
+              <button key={val} type="button" onClick={() => setIndustry(industry === val ? '' : val)} className={cx('flex-1 rounded-lg border px-3 py-2 text-left transition', industry === val ? (val === 'agricultural' ? 'border-[#1F9D55] bg-[#1F9D55]/10' : 'border-brand bg-brand-tint') : 'border-line bg-surface hover:bg-black/[0.03]')}>
+                <span className={cx('block text-sm font-semibold', industry === val ? (val === 'agricultural' ? 'text-[#177245]' : 'text-brand-dark') : 'text-ink')}>{lab}</span>
+                <span className="block text-2xs text-muted">{sub}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div>
@@ -444,9 +500,23 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       </div>
 
       <div className="flex flex-wrap gap-2.5">
-        <Toggle on={twoStep} onChange={toggleTwoStep} icon={<Layers size={15} />} label="Two-step sample" hint="Bulk + surface" />
+        <Toggle on={twoStep} onChange={toggleTwoStep} icon={<Layers size={15} />} label="Two-step sample" hint="Two stages" />
         <Toggle on={discontinued} onChange={setDiscontinued} icon={<Ban size={15} />} label="Discontinued" hint="No results" tone="muted" />
       </div>
+
+      {twoStep && (
+        <div className="rounded-xl border border-orange/25 bg-orange-tint/20 p-3">
+          <label className="label mb-1">What is the second step?</label>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {['Surface crosslinking', 'Bulk crosslinking', 'Surface coating', 'Surface processing'].map((opt) => (
+              <button key={opt} type="button" onClick={() => setStep2Label(opt)} className={cx('rounded-full border px-3 py-1.5 text-xs font-medium transition', step2Label === opt ? 'border-orange bg-orange/10 text-orange-dark' : 'border-line bg-surface text-muted hover:bg-black/[0.03]')}>{opt}</button>
+            ))}
+            <input className="field h-8 w-44 text-sm" placeholder="or type your own…" value={step2Label} onChange={(e) => setStep2Label(e.target.value)} />
+          </div>
+        </div>
+      )}
+
+      <StructureMap en={experiment?.en ?? null} twoStep={twoStep} step2Label={step2Label} obsCount={obs.filter((o) => o.attribute?.trim() || o.value?.trim()).length} industry={industry} />
 
       {allowVary && varyCount >= 1 && (
         <div className="flex items-start gap-2.5 rounded-xl border px-4 py-3" style={{ borderColor: '#6C5CE055', background: '#6C5CE012' }}>
@@ -498,18 +568,34 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
               {procs.filter((p) => (p.stage ?? null) === st.stage).length === 0 && <p className="text-sm text-subtle">No steps yet.</p>}
               {procs.filter((p) => (p.stage ?? null) === st.stage).map((p) => (
                 <div key={p._k} className="space-y-2">
-                  <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_120px_auto]">
-                    <Combobox value={p.process || ''} onChange={(v) => updProc(p._k, { process: v })} options={procNames} onCreate={(v) => addRef('process_names', v)} placeholder="Process" createLabel={(v) => `Add “${v}”`} />
-                    <Combobox value={p.measure || ''} onChange={(v) => updProc(p._k, { measure: v })} options={measureNames} onCreate={(v) => addRef('measure_types', v)} placeholder="Measure" createLabel={(v) => `Add “${v}”`} />
-                    <input className="field data" placeholder={p.vary ? 'varies ↓' : 'Value'} disabled={!!p.vary} value={p.vary ? '' : p.value ?? ''} onChange={(e) => updProc(p._k, { value: e.target.value })} />
-                    <div className="flex items-center gap-1">
-                      {allowVary && <VaryToggle on={!!p.vary} onClick={() => markVary('proc', p._k, !p.vary)} />}
-                      <RemoveBtn onClick={() => setProcs((ps) => ps.filter((x) => x._k !== p._k))} />
+                  {p.oven ? (
+                    <div className="rounded-lg border border-orange/25 bg-orange-tint/15 p-2">
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-2xs font-semibold uppercase tracking-wider text-orange-dark"><Cog size={12} /> Oven step · time + temperature</span>
+                        <RemoveBtn onClick={() => setProcs((ps) => ps.filter((x) => x._k !== p._k))} />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1.4fr)_110px_110px_120px]">
+                        <Combobox value={p.process || ''} onChange={(v) => updProc(p._k, { process: v })} options={procNames} onCreate={(v) => addRef('process_names', v)} placeholder="Oven (e.g. Chinese oven)" createLabel={(v) => `Add “${v}”`} />
+                        <div><div className="mb-0.5 text-2xs text-subtle">Temp (°C)</div><input className="field data h-9" inputMode="decimal" placeholder="50" value={p.temp ?? ''} onChange={(e) => updProc(p._k, { temp: e.target.value })} /></div>
+                        <div><div className="mb-0.5 text-2xs text-subtle">Time</div><input className="field data h-9" inputMode="decimal" placeholder="12" value={p.timeVal ?? ''} onChange={(e) => updProc(p._k, { timeVal: e.target.value })} /></div>
+                        <div><div className="mb-0.5 text-2xs text-subtle">Unit</div><select className="field h-9 text-sm" value={p.timeUnit ?? 'h'} onChange={(e) => updProc(p._k, { timeUnit: e.target.value as 'min' | 'h' | 'days' })}><option value="min">min</option><option value="h">hour</option><option value="days">days</option></select></div>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_120px_auto]">
+                      <Combobox value={p.process || ''} onChange={(v) => updProc(p._k, { process: v })} options={procNames} onCreate={(v) => addRef('process_names', v)} placeholder="Process" createLabel={(v) => `Add “${v}”`} />
+                      <Combobox value={p.measure || ''} onChange={(v) => updProc(p._k, { measure: v })} options={measureNames} onCreate={(v) => addRef('measure_types', v)} placeholder="Measure" createLabel={(v) => `Add “${v}”`} />
+                      <input className="field data" placeholder={p.vary ? 'varies ↓' : 'Value'} disabled={!!p.vary} value={p.vary ? '' : p.value ?? ''} onChange={(e) => updProc(p._k, { value: e.target.value })} />
+                      <div className="flex items-center gap-1">
+                        {allowVary && <VaryToggle on={!!p.vary} onClick={() => markVary('proc', p._k, !p.vary)} />}
+                        <RemoveBtn onClick={() => setProcs((ps) => ps.filter((x) => x._k !== p._k))} />
+                      </div>
+                    </div>
+                  )}
                   {p.vary && <VaryValues values={p.values ?? []} onChange={(vals) => updProc(p._k, { values: vals })} />}
                 </div>
               ))}
+              <button type="button" onClick={() => setProcs((ps) => [...ps, blankOven(st.stage)])} className="btn-soft-orange h-8 w-fit px-3 text-xs"><Plus size={14} /> Add oven step</button>
             </RowSection>
           </div>
         </div>
@@ -520,11 +606,18 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
           <div className="rounded-xl border border-orange/25 bg-orange-tint/25 p-3.5">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2"><Scale size={15} className="text-orange" /><h3 className="text-sm font-semibold">Absorbency</h3></div>
-              {!(allowVary && varyCount >= 1) && (
+              {industry !== 'agricultural' && !(allowVary && varyCount >= 1) && (
                 <Segmented size="sm" value={absMode} onChange={(v) => setAbsMode(v as 'final' | 'reading')} options={[{ value: 'final', label: 'Final values' }, { value: 'reading', label: 'From readings' }]} />
               )}
             </div>
-            {allowVary && varyCount >= 1 ? (
+            {industry === 'agricultural' ? (
+              <>
+                <p className="mb-3 text-xs text-muted">Agricultural samples are characterised by free-swell capacity in <strong>deionised water</strong>. Enter the calculated value (g/g).</p>
+                <div className="grid grid-cols-1 gap-3 sm:max-w-xs">
+                  <FinalAbs mkey="FSC" value={finalFscDI} setValue={setFinalFscDI} label="FSC in DI water" />
+                </div>
+              </>
+            ) : allowVary && varyCount >= 1 ? (
               <>
                 <p className="mb-3 text-xs text-muted">Enter the test masses for each value in the series — each row becomes that sample’s FSC, CRC and AUP.</p>
                 <div className="space-y-2">
@@ -581,7 +674,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
               {obs.length === 0 && <p className="text-sm text-subtle">Describe what the product looks/feels like — colour, texture, final structure, general evaluation. Useful when a sample isn’t good enough for absorbency testing.</p>}
               {obs.map((o) => (
                 <div key={o._k} className="grid grid-cols-[1fr] gap-2 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_auto]">
-                  <Combobox value={o.attribute || ''} onChange={(v) => updObs(o._k, { attribute: v })} options={DEFAULT_ATTRS} placeholder="Attribute (e.g. Colour)" />
+                  <Combobox value={o.attribute || ''} onChange={(v) => updObs(o._k, { attribute: v })} options={DEFAULT_ATTRS} allowFreeText onCreate={(v) => updObs(o._k, { attribute: v })} createLabel={(v) => `Add “${v}”`} placeholder="Attribute (e.g. Colour)" />
                   <input className="field" placeholder="Observation (e.g. pale yellow, brittle foam)" value={o.value ?? ''} onChange={(e) => updObs(o._k, { value: e.target.value })} />
                   <RemoveBtn onClick={() => setObs((os) => os.filter((x) => x._k !== o._k))} />
                 </div>
@@ -635,7 +728,7 @@ function UnitToggle({ value, onChange }: { value: AmountUnit; onChange: (u: Amou
     <div className="flex overflow-hidden rounded-lg border border-line">
       {(['g', 'mL'] as AmountUnit[]).map((u) => (
         <button key={u} type="button" onClick={() => onChange(u)} className={cx('flex-1 px-2 py-2 text-xs font-semibold transition', value === u ? (u === 'mL' ? 'bg-brand text-white' : 'bg-navy text-white') : 'bg-surface text-muted hover:bg-black/[0.03]')}>
-          {u === 'mL' ? <Droplet size={12} className="mx-auto" /> : 'g'}
+          {u === 'mL' ? 'ml' : 'g'}
         </button>
       ))}
     </div>
@@ -744,4 +837,37 @@ function RowSection({ icon, title, onAdd, addLabel, tone = 'teal', children }: {
 }
 function RemoveBtn({ onClick }: { onClick: () => void }) {
   return <button type="button" onClick={onClick} className="btn-ghost h-9 w-9 shrink-0 self-start p-0 text-subtle hover:text-danger" aria-label="Remove row"><Trash2 size={16} /></button>
+}
+
+/* Mind-map showing how the steps, qualitative notes and results hang off the experiment */
+function StructureMap({ en, twoStep, step2Label, obsCount, industry }: { en: number | null; twoStep: boolean; step2Label: string; obsCount: number; industry: string }) {
+  const branches: { label: string; color: string }[] = []
+  if (twoStep) { branches.push({ label: 'Step 1 · Bulk preparation', color: '#0E8A94' }); branches.push({ label: `Step 2 · ${step2Label || 'Surface crosslinking'}`, color: '#FF4700' }) }
+  else branches.push({ label: 'Processing', color: '#0E8A94' })
+  if (obsCount > 0) branches.push({ label: `Qualitative observations · ${obsCount}`, color: '#E8A100' })
+  branches.push({ label: industry === 'agricultural' ? 'FSC in DI water' : 'FSC · CRC · AUP', color: '#6C5CE0' })
+
+  const n = branches.length, rowH = 42, padY = 14
+  const H = Math.max(120, n * rowH + padY * 2), W = 600
+  const leftCx = 86, leftCy = H / 2, rx = 300
+  const ys = branches.map((_, i) => padY + rowH / 2 + i * rowH)
+  return (
+    <div className="rounded-xl border border-line bg-paper p-2">
+      <div className="mb-1 px-1 text-2xs font-semibold uppercase tracking-wider text-subtle">How this experiment connects</div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: H + 4 }} preserveAspectRatio="xMidYMid meet">
+        <defs><marker id="sm-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#9AA0A6" /></marker></defs>
+        {ys.map((y, i) => { const x1 = leftCx + 72, x2 = rx - 6, mx = (x1 + x2) / 2; return <path key={i} d={`M ${x1} ${leftCy} C ${mx} ${leftCy}, ${mx} ${y}, ${x2} ${y}`} fill="none" stroke="#C9CDD2" strokeWidth="1.6" markerEnd="url(#sm-arrow)" /> })}
+        <rect x={leftCx - 72} y={leftCy - 22} width="144" height="44" rx="10" fill="#0B1F3A" />
+        <text x={leftCx} y={leftCy - 3} textAnchor="middle" fill="#fff" fontSize="13" fontWeight="700" fontFamily="Arial">{en ? `EN${en}` : 'New sample'}</text>
+        <text x={leftCx} y={leftCy + 13} textAnchor="middle" fill="#9FB3C8" fontSize="9" fontFamily="Arial">{industry || 'experiment'}</text>
+        {branches.map((b, i) => (
+          <g key={i}>
+            <rect x={rx} y={ys[i] - 15} width={W - rx - 8} height="30" rx="8" fill="#fff" stroke={b.color} strokeWidth="1.4" />
+            <circle cx={rx + 14} cy={ys[i]} r="4" fill={b.color} />
+            <text x={rx + 26} y={ys[i] + 4} fill="#15181E" fontSize="11.5" fontFamily="Arial">{b.label}</text>
+          </g>
+        ))}
+      </svg>
+    </div>
+  )
 }
