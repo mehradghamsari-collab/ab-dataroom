@@ -42,7 +42,7 @@ function resultsSummary(e: FullExperiment): string[] {
 /* ============================ WORD ============================ */
 export async function generateLabReportDocx(experiments: FullExperiment[], chemicals: Chemical[], title = 'Lab Report') {
   const d: any = await import('docx')
-  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageBreak } = d
+  const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, BorderStyle, ShadingType, PageBreak, ImageRun } = d
 
   const run = (text: string, opts: any = {}) => new TextRun({ text, font: 'Calibri', ...opts })
   const para = (children: any[], opts: any = {}) => new Paragraph({ children, ...opts })
@@ -72,6 +72,21 @@ export async function generateLabReportDocx(experiments: FullExperiment[], chemi
   children.push(para([run('A&B SMART MATERIALS', { bold: true, color: TEAL, size: 18, characterSpacing: 30 })], { spacing: { after: 40 } }))
   children.push(para([run(title, { bold: true, color: NAVY, size: 44 })]))
   children.push(para([run(`${experiments.length} experiment${experiments.length === 1 ? '' : 's'}  ·  generated ${new Date().toLocaleDateString()}`, { color: MUTED, size: 20 })], { spacing: { after: 120 } }))
+
+  // ---- Comparison of the selected experiments (charts + summary) ----
+  if (experiments.length >= 2) {
+    const barBytes = metricBarPng(experiments)
+    const scatterBytes = crcAupScatterPng(experiments)
+    children.push(para([run('Comparison of selected experiments', { bold: true, color: NAVY, size: 28 })], { spacing: { before: 80, after: 80 } }))
+    if (barBytes) children.push(new Paragraph({ spacing: { after: 140 }, children: [new ImageRun({ data: barBytes, transformation: { width: 624, height: 352 } })] }))
+    if (scatterBytes) {
+      children.push(para([run('CRC vs AUP positioning', { bold: true, color: TEAL, size: 20 })], { spacing: { before: 40, after: 60 } }))
+      children.push(new Paragraph({ spacing: { after: 120 }, children: [new ImageRun({ data: scatterBytes, transformation: { width: 470, height: 360 } })] }))
+    }
+    children.push(heading('Summary table', TEAL, 24))
+    children.push(table(['EN', 'Description', 'Owner', 'FSC', 'CRC', 'AUP'], experiments.map((e) => { const m = sampleMetrics(e); return [`EN${e.en}`, e.description || '', e.owner || '', m.FSC != null ? String(m.FSC) : '—', m.CRC != null ? String(m.CRC) : '—', m.AUP != null ? String(m.AUP) : '—'] }), [12, 38, 18, 10, 11, 11]))
+    children.push(para([new PageBreak()]))
+  }
 
   experiments.forEach((e, idx) => {
     if (idx > 0) children.push(para([new PageBreak()]))
@@ -210,6 +225,85 @@ export async function generateSlidesPptx(experiments: FullExperiment[], _chemica
 
   const fileName = `${title.replace(/\s+/g, '-')}-${dateStamp()}.pptx`
   await pptx.writeFile({ fileName })
+}
+
+/* ---------------- chart rendering (canvas → PNG bytes) ---------------- */
+function niceMax(v: number): number {
+  if (v <= 0) return 1
+  const exp = Math.pow(10, Math.floor(Math.log10(v)))
+  const f = v / exp
+  const nf = f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10
+  return nf * exp
+}
+function dataUrlToBytes(url: string): Uint8Array {
+  const b64 = url.split(',')[1] ?? ''
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+function metricBarPng(exps: FullExperiment[]): Uint8Array | null {
+  const items = exps.map((e) => ({ en: e.en, m: sampleMetrics(e) })).filter((x) => x.m.FSC != null || x.m.CRC != null || x.m.AUP != null)
+  if (items.length === 0) return null
+  const W = 940, H = 520
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H
+  const ctx = cv.getContext('2d'); if (!ctx) return null
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
+  const ml = 64, mr = 24, mt = 64, mb = 86
+  const plotW = W - ml - mr, plotH = H - mt - mb
+  const series = [{ name: 'FSC', color: '#0E8A94', get: (m: any) => m.FSC }, { name: 'CRC', color: '#6C5CE0', get: (m: any) => m.CRC }, { name: 'AUP', color: '#FF4700', get: (m: any) => m.AUP }]
+  const maxV = Math.max(1, ...items.flatMap((it) => series.map((s) => s.get(it.m) ?? 0)))
+  const yMax = niceMax(maxV)
+  ctx.strokeStyle = '#E2E6E6'; ctx.lineWidth = 1; ctx.fillStyle = '#6C7077'; ctx.font = '12px Arial'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle'
+  const ticks = 5
+  for (let i = 0; i <= ticks; i++) { const v = yMax * i / ticks; const y = mt + plotH - (v / yMax) * plotH; ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(W - mr, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), ml - 8, y) }
+  const n = items.length; const groupW = plotW / n; const innerPad = Math.min(groupW * 0.18, 14); const barGap = 4
+  const bw = Math.max(3, (groupW - innerPad * 2 - barGap * (series.length - 1)) / series.length)
+  items.forEach((it, gi) => {
+    const gx = ml + gi * groupW + innerPad
+    series.forEach((s, si) => {
+      const v = s.get(it.m); if (v == null) return
+      const x = gx + si * (bw + barGap); const h = (v / yMax) * plotH; const y = mt + plotH - h
+      ctx.fillStyle = s.color; ctx.fillRect(x, y, bw, h)
+      if (n <= 12) { ctx.fillStyle = '#15181E'; ctx.font = 'bold 10px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom'; ctx.fillText(String(v), x + bw / 2, y - 2) }
+    })
+    const lx = ml + gi * groupW + groupW / 2; const ly = mt + plotH + 8
+    ctx.fillStyle = '#15181E'; ctx.font = 'bold 11px Arial'; ctx.textBaseline = 'top'
+    if (n > 10) { ctx.save(); ctx.translate(lx, ly); ctx.rotate(-Math.PI / 4); ctx.textAlign = 'right'; ctx.fillText(`EN${it.en}`, 0, 0); ctx.restore() }
+    else { ctx.textAlign = 'center'; ctx.fillText(`EN${it.en}`, lx, ly) }
+  })
+  ctx.strokeStyle = '#9AA0A6'; ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + plotH); ctx.lineTo(W - mr, mt + plotH); ctx.stroke()
+  ctx.fillStyle = '#0B1F3A'; ctx.font = 'bold 16px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('Absorbency comparison (g/g)', ml, 26)
+  let lxp = ml; const ly2 = 46
+  series.forEach((s) => { ctx.fillStyle = s.color; ctx.fillRect(lxp, ly2 - 9, 12, 12); ctx.fillStyle = '#15181E'; ctx.font = '12px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(s.name, lxp + 16, ly2 - 2); lxp += 16 + ctx.measureText(s.name).width + 22 })
+  return dataUrlToBytes(cv.toDataURL('image/png'))
+}
+function crcAupScatterPng(exps: FullExperiment[]): Uint8Array | null {
+  const pts = exps.map((e) => { const m = sampleMetrics(e); return { en: e.en, x: m.CRC, y: m.AUP } }).filter((p) => p.x != null && p.y != null) as { en: number; x: number; y: number }[]
+  if (pts.length < 2) return null
+  const W = 660, H = 520
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H
+  const ctx = cv.getContext('2d'); if (!ctx) return null
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H)
+  const ml = 64, mr = 24, mt = 56, mb = 64
+  const plotW = W - ml - mr, plotH = H - mt - mb
+  const xMax = niceMax(Math.max(...pts.map((p) => p.x))); const yMax = niceMax(Math.max(...pts.map((p) => p.y)))
+  ctx.strokeStyle = '#E2E6E6'; ctx.lineWidth = 1; ctx.fillStyle = '#6C7077'; ctx.font = '12px Arial'
+  const ticks = 5
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle'
+  for (let i = 0; i <= ticks; i++) { const v = yMax * i / ticks; const y = mt + plotH - (v / yMax) * plotH; ctx.beginPath(); ctx.moveTo(ml, y); ctx.lineTo(W - mr, y); ctx.stroke(); ctx.fillText(String(Math.round(v)), ml - 8, y) }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top'
+  for (let i = 0; i <= ticks; i++) { const v = xMax * i / ticks; const x = ml + (v / xMax) * plotW; ctx.fillText(String(Math.round(v)), x, mt + plotH + 8) }
+  ctx.strokeStyle = '#9AA0A6'; ctx.beginPath(); ctx.moveTo(ml, mt); ctx.lineTo(ml, mt + plotH); ctx.lineTo(W - mr, mt + plotH); ctx.stroke()
+  pts.forEach((p) => {
+    const x = ml + (p.x / xMax) * plotW; const y = mt + plotH - (p.y / yMax) * plotH
+    ctx.fillStyle = '#0E8A94'; ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#15181E'; ctx.font = '10px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(`EN${p.en}`, x + 7, y)
+  })
+  ctx.fillStyle = '#0B1F3A'; ctx.font = 'bold 15px Arial'; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('CRC vs AUP (g/g)', ml, 28)
+  ctx.fillStyle = '#6C7077'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'center'; ctx.fillText('CRC →', ml + plotW / 2, H - 18)
+  ctx.save(); ctx.translate(18, mt + plotH / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('AUP →', 0, 0); ctx.restore()
+  return dataUrlToBytes(cv.toDataURL('image/png'))
 }
 
 /* ---------------- helpers ---------------- */

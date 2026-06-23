@@ -205,3 +205,87 @@ export async function exportBackupXlsx(experiments: FullExperiment[], chemicals:
   a.href = url; a.download = backupFilename(); a.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
+
+/* ============================================================
+   Tracker-format export — one row per experiment, exact 69-column
+   lab layout, so the file matches how data is logged/imported.
+   ============================================================ */
+import { metricValue } from './metrics'
+
+function trackerHeaders(): string[] {
+  const h = ['EN', 'Date', 'Owner', 'Repeat?', 'Experiment type', 'Description']
+  for (let i = 1; i <= 7; i++) h.push(`${i} - Name`, `${i} - Mass (g)`, `${i} - Ratio`)
+  for (let i = 1; i <= 12; i++) h.push(i === 1 ? '1- Process' : `${i} - Process`, `${i} - Measure`, `${i} - Value`)
+  h.push('Method', 'FSC in saline (g/g)', 'CRC in saline (g/g)', 'AUP in saline (0.7 PSI) (g/g)', 'FSC in DI water (g/g)', 'AUP at 0.3 PSI (g/g)')
+  return h
+}
+function resultByRe(e: FullExperiment, re: RegExp): number | string | null {
+  const row = e.experiment_results.find((r) => r.result_type && re.test(r.result_type))
+  if (!row) return null
+  if (row.value_num != null) return row.value_num
+  return row.value ?? null
+}
+function trackerRow(e: FullExperiment): (string | number | null)[] {
+  const row: (string | number | null)[] = new Array(69).fill(null)
+  row[0] = e.en != null ? `EN${e.en}` : ''
+  row[1] = e.date ?? ''
+  row[2] = e.owner ?? ''
+  row[3] = e.repeat ?? ''
+  row[4] = e.experiment_type ?? ''
+  row[5] = e.description ?? ''
+  const mats = [...e.experiment_materials].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).filter((m) => m.name).slice(0, 7)
+  mats.forEach((m, i) => { const b = 6 + i * 3; row[b] = m.name ?? ''; row[b + 1] = m.mass_g ?? null; row[b + 2] = m.ratio ?? '' })
+  const procs = [...e.experiment_processes].sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).filter((p) => p.process || p.measure || p.value).slice(0, 12)
+  procs.forEach((p, i) => { const b = 27 + i * 3; row[b] = p.process ?? ''; row[b + 1] = p.measure ?? ''; row[b + 2] = p.value ?? '' })
+  row[63] = e.method ?? ''
+  row[64] = metricValue(e, 'FSC')
+  row[65] = metricValue(e, 'CRC')
+  row[66] = metricValue(e, 'AUP')
+  row[67] = resultByRe(e, /^fsc in di/i)
+  row[68] = resultByRe(e, /aup.*0\.3|^aup at 0\.3/i)
+  return row
+}
+
+export async function exportTrackerXlsx(experiments: FullExperiment[]) {
+  const mod: any = await import('exceljs')
+  const ExcelJS = mod.default ?? mod
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'A&B Smart Materials — Dataroom'
+  const ws = wb.addWorksheet('Experiments', { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }] })
+  const headers = trackerHeaders()
+  ws.addRow(headers)
+  const sorted = [...experiments].sort((a, b) => (b.en ?? 0) - (a.en ?? 0))
+  sorted.forEach((e) => ws.addRow(trackerRow(e)))
+
+  // header styling — match the import grouping colours
+  const groupFill = (i: number): string => {
+    if (i <= 5) return 'FF0B1F3A'
+    if (i <= 26) return Math.floor((i - 6) / 3) % 2 === 0 ? 'FF0E8A94' : 'FF0A6E76'
+    if (i <= 62) return Math.floor((i - 27) / 3) % 2 === 0 ? 'FF3B3663' : 'FF2A2747'
+    if (i === 63) return 'FF5A4BD0'
+    return 'FFC93A00'
+  }
+  const head = ws.getRow(1)
+  head.height = 30
+  headers.forEach((_, i) => {
+    const c = head.getCell(i + 1)
+    c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: groupFill(i) } }
+    c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 9 }
+    c.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
+    c.border = { right: { style: 'thin', color: { argb: 'FFFFFFFF' } } }
+  })
+  headers.forEach((h, i) => {
+    const col = ws.getColumn(i + 1)
+    col.width = /description|method/i.test(h) ? 26 : /name|process|measure/i.test(h) ? 22 : /^date$/i.test(h) ? 13 : i >= 64 ? 16 : 11
+  })
+  // light zebra on body rows
+  for (let r = 2; r <= sorted.length + 1; r++) { if (r % 2 === 0) ws.getRow(r).eachCell((c: any) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF7F8F8' } } }) }
+
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  const d = new Date(); const p = (n: number) => String(n).padStart(2, '0')
+  a.href = url; a.download = `AB-experiments-${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}.xlsx`; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}

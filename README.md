@@ -398,3 +398,15 @@ Existing experiments open in whichever mode their data was saved in. *(The paste
 No new migration.
 
 > Note on the readings calculator: the built-in formulas use the lab constants currently set in the app (shown under each input). If those tare/dry-mass constants don't match your exact protocol, tell me the correct formula and I'll set it precisely.
+
+---
+
+## v5.8 — Export selected experiments to Excel (tracker format) and a Word report
+
+With **Select** on (Experiments page), the floating bar now has two export buttons next to Delete:
+
+**Excel** — downloads an `.xlsx` in the **exact 69-column logging layout** (EN, Date, Owner, Repeat?, Type, Description, 7 chemical Name/Mass/Ratio sets, 12 process Process/Measure/Value sets, Method, FSC saline, CRC saline, AUP 0.7, FSC DI, AUP 0.3). One row per selected experiment, header colour-banded to match the import grid. This file can be reviewed, archived, or pasted straight back into the import table.
+
+**Report** — generates a Word **lab report** for the selected experiments. When two or more are selected it opens with a **comparison section**: an absorbency bar chart (FSC/CRC/AUP per experiment), a CRC-vs-AUP positioning scatter, and a summary table — followed by a full per-experiment write-up (materials, procedure, results, cost, method, next steps). Charts are drawn into the document as images.
+
+No new migration.

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check, FileSpreadsheet, FileText } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
@@ -7,6 +7,8 @@ import { ExperimentModal } from './ExperimentEditor'
 import { ImportModal } from './ImportExperiments'
 import { FullLoader, EmptyState, TypePill, OwnerAvatar, MetricPill, Segmented, Spinner, useToast, useConfirm } from '../components/ui'
 import { supabase } from '../lib/supabase'
+import { exportTrackerXlsx } from '../lib/backup'
+import { generateLabReportDocx } from '../lib/docgen'
 import { sampleMetrics } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
 import { cx, fmtDate } from '../lib/utils'
@@ -26,7 +28,7 @@ function matchText(e: FullExperiment, q: string): boolean {
 }
 
 export function Experiments() {
-  const { experiments, loading, types, owners, refetchExperiments } = useData()
+  const { experiments, loading, types, owners, chemicals, refetchExperiments } = useData()
   const { profile } = useAuth()
   const toast = useToast()
   const confirm = useConfirm()
@@ -45,6 +47,7 @@ export function Experiments() {
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busyDel, setBusyDel] = useState(false)
+  const [exporting, setExporting] = useState<null | 'xlsx' | 'doc'>(null)
 
   const myKeys = useMemo(() => {
     const out = new Set<string>()
@@ -98,6 +101,19 @@ export function Experiments() {
       exitSelect()
       toast(n === ids.length ? `Deleted ${n} experiment${n === 1 ? '' : 's'}` : `Deleted ${n} of ${ids.length} — the rest aren't yours to remove`, n > 0 ? 'ok' : 'err')
     } catch (e: any) { toast(e?.message ?? 'Delete failed', 'err') } finally { setBusyDel(false) }
+  }
+  const selectedExps = () => [...selected].map((id) => experiments.find((e) => e.id === id)).filter(Boolean) as FullExperiment[]
+  const exportExcel = async () => {
+    const exps = selectedExps(); if (!exps.length) return
+    setExporting('xlsx')
+    try { await exportTrackerXlsx(exps); toast(`Excel ready · ${exps.length} experiment${exps.length === 1 ? '' : 's'}`) }
+    catch (e: any) { toast(e?.message ?? 'Excel export failed', 'err') } finally { setExporting(null) }
+  }
+  const exportReport = async () => {
+    const exps = selectedExps(); if (!exps.length) return
+    setExporting('doc')
+    try { await generateLabReportDocx(exps, chemicals, exps.length === 1 ? `Lab Report — EN${exps[0].en}` : 'Lab Report'); toast(`Report ready · ${exps.length} experiment${exps.length === 1 ? '' : 's'}`) }
+    catch (e: any) { toast(e?.message ?? 'Report failed', 'err') } finally { setExporting(null) }
   }
 
   if (loading) return <FullLoader label="Loading experiments" />
@@ -247,8 +263,11 @@ export function Experiments() {
 
       {selecting && (
         <div className="pointer-events-none sticky bottom-4 z-30 mt-4 flex justify-center">
-          <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-line bg-surface px-4 py-2 shadow-lg animate-fadeUp">
+          <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-2 shadow-lg animate-fadeUp sm:gap-3 sm:px-4">
             <span className="text-sm"><span className="data font-semibold text-ink">{selected.size}</span> selected</span>
+            <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportExcel} disabled={selected.size === 0 || exporting !== null} title="Excel in the logging format">{exporting === 'xlsx' ? <Spinner className="h-4 w-4" /> : <><FileSpreadsheet size={14} /> Excel</>}</button>
+            <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportReport} disabled={selected.size === 0 || exporting !== null} title="Word lab report with comparison plots">{exporting === 'doc' ? <Spinner className="h-4 w-4" /> : <><FileText size={14} /> Report</>}</button>
+            <span className="h-5 w-px bg-line" />
             <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Clear</button>
             <button className="btn-danger h-8 px-3 text-xs" onClick={deleteSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><Trash2 size={14} /> Delete</>}</button>
           </div>
