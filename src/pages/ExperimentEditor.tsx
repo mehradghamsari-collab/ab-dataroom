@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X, Boxes, Palette } from 'lucide-react'
+import { Plus, Trash2, Pencil, FlaskConical, Beaker, Cog, Gauge, Layers, Ban, Coins, Droplet, Scale, Variable, X, Boxes, Palette, CheckCircle2, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { FullExperiment, Material, ProcessStep, ResultEntry, AmountUnit, Stage, Batch, Observation } from '../lib/types'
 import { useData } from '../context/DataContext'
@@ -9,6 +9,7 @@ import { Combobox } from '../components/Combobox'
 import { cx, fmtDate, parseNum, todayISO } from '../lib/utils'
 import { sampleMetrics, formulationCost, computeFSC, computeCRC, computeAUP, ABS_CONST, METRIC_COLOR } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
+import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, ResponsiveContainer, LabelList } from 'recharts'
 
 type Mode = 'view' | 'edit' | 'new'
 let KEY = 0
@@ -97,6 +98,45 @@ export function ExperimentModal({ open, experiment, initialMode, onClose }: { op
 }
 
 /* ----------------------------- Read-only view ----------------------------- */
+function QuickPlot({ e, m, res }: { e: FullExperiment; m: ReturnType<typeof sampleMetrics>; res: ResultEntry[] }) {
+  const toNum = (r: ResultEntry): number | null => {
+    if (r.value_num != null) return r.value_num
+    const mm = String(r.value ?? '').replace(/,/g, '').match(/-?\d+\.?\d*/)
+    return mm ? parseFloat(mm[0]) : null
+  }
+  const data: { name: string; value: number; color: string }[] = []
+  if (m.FSC != null) data.push({ name: 'FSC', value: m.FSC, color: METRIC_COLOR.FSC })
+  if (m.CRC != null) data.push({ name: 'CRC', value: m.CRC, color: METRIC_COLOR.CRC })
+  if (m.AUP != null) data.push({ name: 'AUP', value: m.AUP, color: METRIC_COLOR.AUP })
+  res.forEach((r) => {
+    if (!r.result_type || isCanonMetric(r.result_type)) return
+    const v = toNum(r)
+    if (v == null) return
+    const short = r.result_type.replace(/\s*\(.*?\)\s*/g, '').trim().slice(0, 18) || r.result_type
+    const color = isFscDI(r.result_type) ? '#0A6E76' : /aup/i.test(r.result_type) ? '#FF4700' : /crc/i.test(r.result_type) ? '#6C5CE0' : /fsc/i.test(r.result_type) ? '#0E8A94' : '#5B6770'
+    data.push({ name: short, value: v, color })
+  })
+  if (data.length === 0) return null
+  const h = Math.max(150, data.length * 38 + 30)
+  return (
+    <Section icon={<Gauge size={15} />} title="Results at a glance">
+      <div className="rounded-xl border border-line bg-paper p-3" style={{ height: h }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 44, bottom: 4, left: 8 }} barCategoryGap={10}>
+            <XAxis type="number" hide domain={[0, 'dataMax']} />
+            <YAxis type="category" dataKey="name" width={88} tick={{ fontSize: 12, fill: '#5B6770' }} axisLine={false} tickLine={false} />
+            <Tooltip cursor={{ fill: '#0E8A9410' }} formatter={(v: any) => [`${v} g/g`, 'Value']} contentStyle={{ borderRadius: 10, border: '1px solid #E5E8EC', fontSize: 12 }} />
+            <Bar dataKey="value" radius={[0, 6, 6, 0]} isAnimationActive={false}>
+              {data.map((d, i) => <Cell key={i} fill={d.color} />)}
+              <LabelList dataKey="value" position="right" style={{ fontSize: 11, fontWeight: 600, fill: '#15181E' }} />
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </Section>
+  )
+}
+
 function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullExperiment; canEdit: boolean; onEdit: () => void }) {
   const { chemicals } = useData()
   const byStage = (arr: any[], s: Stage | null) => arr.filter((x) => (x.stage ?? null) === s).sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
@@ -134,6 +174,8 @@ function ExperimentView({ experiment: e, canEdit, onEdit }: { experiment: FullEx
           {(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} />)}
         </div>
       )}
+
+      <QuickPlot e={e} m={m} res={res} />
 
       {e.discontinued && (
         <div className="flex items-center gap-2 rounded-lg border border-line bg-paper px-3.5 py-2.5 text-sm text-muted">
@@ -251,6 +293,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
   const [step2Label, setStep2Label] = useState(experiment?.step2_label ?? 'Surface crosslinking')
   const [industry, setIndustry] = useState<'agricultural' | 'hygiene' | ''>(experiment?.industry ?? '')
   const [discontinued, setDiscontinued] = useState(experiment?.discontinued ?? false)
+  const [isDone, setIsDone] = useState(experiment?.is_done ?? true)
   const [extraCost, setExtraCost] = useState<number | null>(experiment?.extra_cost ?? null)
   const [fscMass, setFscMass] = useState<number | null>(experiment?.fsc_mass ?? null)
   const [crcMass, setCrcMass] = useState<number | null>(experiment?.crc_mass ?? null)
@@ -362,7 +405,7 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       const cleanObs = obs.filter((o) => o.attribute?.trim() || o.value?.trim()).map((o, i) => ({ position: i + 1, attribute: o.attribute?.trim() || null, value: o.value?.trim() || null, stage: null }))
 
       const noMass = (v: number | null) => (discontinued || industry === 'agricultural' || absMode === 'final' ? null : v)
-      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, extra_cost: extraCost, project: project || null, industry: industry || null, step2_label: twoStep ? (step2Label || null) : null, fsc_mass: noMass(fscMass), crc_mass: noMass(crcMass), aup_mass: noMass(aupMass) }
+      const base = { date: date || null, owner: owner || null, experiment_type: type || null, repeat: repeat || null, description: description || null, method: method || null, is_two_step: twoStep, discontinued, is_done: isDone, extra_cost: extraCost, project: project || null, industry: industry || null, step2_label: twoStep ? (step2Label || null) : null, fsc_mass: noMass(fscMass), crc_mass: noMass(crcMass), aup_mass: noMass(aupMass) }
 
       // ----- Varying factor → create a separate experiment per value (new only) -----
       const vMatIdx = matsFiltered.findIndex((m) => m.vary && m.values?.some((v) => v.trim() !== ''))
@@ -500,9 +543,11 @@ function ExperimentForm({ experiment, canEdit, onCancel, onSaved }: { experiment
       </div>
 
       <div className="flex flex-wrap gap-2.5">
+        <Toggle on={isDone} onChange={setIsDone} icon={<CheckCircle2 size={15} />} label="Experiment is done" hint={isDone ? 'In the main list' : 'Saved as unfinished'} tone={isDone ? 'brand' : 'muted'} />
         <Toggle on={twoStep} onChange={toggleTwoStep} icon={<Layers size={15} />} label="Two-step sample" hint="Two stages" />
         <Toggle on={discontinued} onChange={setDiscontinued} icon={<Ban size={15} />} label="Discontinued" hint="No results" tone="muted" />
       </div>
+      {!isDone && <div className="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-50 px-3 py-2 text-xs text-amber-800"><Clock size={14} /> This will be saved to the <strong>Unfinished</strong> tab. Tick “Experiment is done” when it’s complete to move it into the main list.</div>}
 
       {twoStep && (
         <div className="rounded-xl border border-orange/25 bg-orange-tint/20 p-3">

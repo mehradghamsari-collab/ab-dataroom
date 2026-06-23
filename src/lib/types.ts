@@ -62,6 +62,8 @@ export interface Experiment {
   project: string | null
   industry: 'agricultural' | 'hygiene' | null
   step2_label: string | null
+  is_done: boolean
+  deleted_at: string | null
   fsc_mass: number | null
   crc_mass: number | null
   aup_mass: number | null
@@ -142,6 +144,17 @@ export interface ExternalTest {
   result_summary: string | null
   result_date: string | null
   notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InstrumentTest {
+  id: string
+  experiment_id: string | null
+  technique: string
+  result_summary: string | null
+  test_date: string | null
   created_by: string | null
   created_at: string
   updated_at: string

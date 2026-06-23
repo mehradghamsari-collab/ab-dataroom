@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check, FileSpreadsheet, FileText } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check, FileSpreadsheet, FileText, Clock, RotateCcw, CheckCircle2 } from 'lucide-react'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
@@ -31,6 +31,20 @@ const industryClass = (e: FullExperiment): 'agri' | 'hygiene' | 'other' => {
   if (fscDIof(e) != null) return 'agri'
   return 'other'
 }
+function ObsChips({ e, max = 2 }: { e: FullExperiment; max?: number }) {
+  const obs = (e.experiment_observations ?? []).filter((o) => o.attribute || o.value)
+  if (!obs.length) return <span className="text-subtle">—</span>
+  return (
+    <>
+      {obs.slice(0, max).map((o, i) => (
+        <span key={i} className="inline-flex max-w-[150px] items-center gap-1 truncate rounded-full bg-orange-tint/50 px-2 py-0.5 text-2xs font-medium text-orange-dark">
+          {o.attribute && <span className="font-semibold">{o.attribute}:</span>} <span className="truncate">{o.value || '—'}</span>
+        </span>
+      ))}
+      {obs.length > max && <span className="text-2xs text-subtle">+{obs.length - max}</span>}
+    </>
+  )
+}
 
 function matchText(e: FullExperiment, q: string): boolean {
   if (!q) return true
@@ -44,10 +58,11 @@ function matchText(e: FullExperiment, q: string): boolean {
 }
 
 export function Experiments() {
-  const { experiments, loading, types, owners, chemicals, refetchExperiments } = useData()
+  const { experiments, deletedExperiments, loading, types, owners, chemicals, refetchExperiments } = useData()
   const { profile } = useAuth()
   const toast = useToast()
   const confirm = useConfirm()
+  const [tab, setTab] = useState<'all' | 'unfinished' | 'deleted'>('all')
   const [q, setQ] = useState('')
   const [typeF, setTypeF] = useState<string[]>([])
   const [ownerF, setOwnerF] = useState<string[]>([])
@@ -75,7 +90,8 @@ export function Experiments() {
   const toggle = (arr: string[], v: string, set: (a: string[]) => void) => set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v])
 
   const list = useMemo(() => {
-    let out = experiments.filter(
+    const source = tab === 'deleted' ? deletedExperiments : experiments.filter((e) => (tab === 'unfinished' ? !e.is_done : e.is_done))
+    let out = source.filter(
       (e) =>
         matchText(e, q) &&
         (typeF.length === 0 || (e.experiment_type && typeF.includes(e.experiment_type))) &&
@@ -92,7 +108,8 @@ export function Experiments() {
       return c !== 0 ? c : (b.en ?? 0) - (a.en ?? 0)
     })
     return out
-  }, [experiments, q, typeF, ownerF, projectF, status, mine, myKeys, sort])
+  }, [experiments, deletedExperiments, tab, q, typeF, ownerF, projectF, status, mine, myKeys, sort])
+  const unfinishedCount = useMemo(() => experiments.filter((e) => !e.is_done).length, [experiments])
 
   const openExp = (e: FullExperiment) => { setActive(e); setMode('view'); setOpen(true) }
   const openNew = () => { setActive(null); setMode('new'); setOpen(true) }
@@ -106,17 +123,48 @@ export function Experiments() {
   const onRowClick = (e: FullExperiment) => { if (selecting) toggleSel(e.id); else openExp(e) }
   const deleteSelected = async () => {
     const ids = [...selected]; if (!ids.length) return
-    const ok = await confirm({ title: `Delete ${ids.length} experiment${ids.length === 1 ? '' : 's'}?`, message: 'This permanently removes the selected experiments and all of their chemicals, processes, results and observations. This cannot be undone.', confirmLabel: `Delete ${ids.length}`, danger: true })
+    const ok = await confirm({ title: `Move ${ids.length} experiment${ids.length === 1 ? '' : 's'} to Recently deleted?`, message: 'They’ll be hidden from the list and kept in Recently deleted, where you can restore them or remove them for good.', confirmLabel: `Move ${ids.length} to bin`, danger: true })
+    if (!ok) return
+    setBusyDel(true)
+    try {
+      const { data, error } = await supabase.from('experiments').update({ deleted_at: new Date().toISOString() }).in('id', ids).select('id')
+      if (error) throw error
+      const n = (data as any[])?.length ?? 0
+      await refetchExperiments(); exitSelect()
+      toast(n === ids.length ? `Moved ${n} to Recently deleted` : `Moved ${n} of ${ids.length} — the rest aren't yours`, n > 0 ? 'ok' : 'err')
+    } catch (e: any) { toast(e?.message ?? 'Delete failed', 'err') } finally { setBusyDel(false) }
+  }
+  const restoreSelected = async () => {
+    const ids = [...selected]; if (!ids.length) return
+    setBusyDel(true)
+    try {
+      const { data, error } = await supabase.from('experiments').update({ deleted_at: null }).in('id', ids).select('id')
+      if (error) throw error
+      await refetchExperiments(); exitSelect()
+      toast(`Restored ${(data as any[])?.length ?? 0} experiment${ids.length === 1 ? '' : 's'}`)
+    } catch (e: any) { toast(e?.message ?? 'Restore failed', 'err') } finally { setBusyDel(false) }
+  }
+  const purgeSelected = async () => {
+    const ids = [...selected]; if (!ids.length) return
+    const ok = await confirm({ title: `Permanently delete ${ids.length}?`, message: 'This removes them and all their data from the database for good. This cannot be undone.', confirmLabel: 'Delete forever', danger: true })
     if (!ok) return
     setBusyDel(true)
     try {
       const { data, error } = await supabase.from('experiments').delete().in('id', ids).select('id')
       if (error) throw error
-      const n = (data as any[])?.length ?? 0
-      await refetchExperiments()
-      exitSelect()
-      toast(n === ids.length ? `Deleted ${n} experiment${n === 1 ? '' : 's'}` : `Deleted ${n} of ${ids.length} — the rest aren't yours to remove`, n > 0 ? 'ok' : 'err')
+      await refetchExperiments(); exitSelect()
+      toast(`Permanently deleted ${(data as any[])?.length ?? 0}`)
     } catch (e: any) { toast(e?.message ?? 'Delete failed', 'err') } finally { setBusyDel(false) }
+  }
+  const markDoneSelected = async () => {
+    const ids = [...selected]; if (!ids.length) return
+    setBusyDel(true)
+    try {
+      const { error } = await supabase.from('experiments').update({ is_done: true }).in('id', ids)
+      if (error) throw error
+      await refetchExperiments(); exitSelect()
+      toast(`Marked ${ids.length} as done`)
+    } catch (e: any) { toast(e?.message ?? 'Update failed', 'err') } finally { setBusyDel(false) }
   }
   const selectedExps = () => [...selected].map((id) => experiments.find((e) => e.id === id)).filter(Boolean) as FullExperiment[]
   const exportExcel = async () => {
@@ -150,7 +198,16 @@ export function Experiments() {
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 animate-fadeUp" style={{ animationDelay: '40ms' }}>
+      <div className="mt-4 flex flex-wrap items-center gap-1 border-b border-line animate-fadeUp" style={{ animationDelay: '30ms' }}>
+        {([['all', 'Experiments', experiments.filter((e) => e.is_done).length], ['unfinished', 'Unfinished', unfinishedCount], ['deleted', 'Recently deleted', deletedExperiments.length]] as const).map(([key, label, count]) => (
+          <button key={key} onClick={() => { setTab(key); exitSelect() }} className={cx('relative -mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition', tab === key ? 'border-brand text-brand-dark' : 'border-transparent text-muted hover:text-ink')}>
+            {key === 'deleted' && <Trash2 size={14} />}{key === 'unfinished' && <Clock size={14} />}{label}
+            <span className={cx('rounded-full px-1.5 text-2xs font-semibold', tab === key ? 'bg-brand text-white' : 'bg-black/[0.06] text-muted')}>{count}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 animate-fadeUp" style={{ animationDelay: '40ms' }}>
         <div className="relative min-w-[200px] flex-1">
           <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-subtle" />
           <input className="field pl-9" placeholder="Search EN, description, chemical, owner…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -237,10 +294,12 @@ export function Experiments() {
                         <td className="px-4 py-2.5"><TypePill type={e.experiment_type} /></td>
                         <td className="max-w-[260px] truncate px-4 py-2.5 text-ink">{e.description || <span className="text-subtle">—</span>}</td>
                         <td className="px-4 py-2.5">
-                          <div className="flex justify-end gap-1">
+                          <div className="flex flex-wrap justify-end gap-1">
                             {ind === 'agri'
-                              ? (fscdi != null ? <span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span> : <span className="text-subtle">—</span>)
-                              : <>{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}{m.FSC === null && m.CRC === null && m.AUP === null && <span className="text-subtle">—</span>}</>}
+                              ? (fscdi != null ? <span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span> : <ObsChips e={e} />)
+                              : (m.FSC !== null || m.CRC !== null || m.AUP !== null)
+                                ? <>{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}</>
+                                : <ObsChips e={e} />}
                           </div>
                         </td>
                       </tr>
@@ -274,10 +333,12 @@ export function Experiments() {
                       {e.discontinued && <span className="pill bg-black/[0.06] text-muted">discontinued</span>}
                     </div>
                     {ind === 'agri'
-                      ? (fscdi != null && <div className="pt-0.5"><span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span></div>)
-                      : (m.FSC !== null || m.CRC !== null || m.AUP !== null) && (
-                        <div className="flex flex-wrap gap-1.5 pt-0.5">{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}</div>
-                      )}
+                      ? (fscdi != null
+                        ? <div className="pt-0.5"><span className="data inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ background: '#0A6E76' }}>FSC-DI {fscdi}</span></div>
+                        : <div className="flex flex-wrap gap-1.5 pt-0.5"><ObsChips e={e} max={3} /></div>)
+                      : (m.FSC !== null || m.CRC !== null || m.AUP !== null)
+                        ? <div className="flex flex-wrap gap-1.5 pt-0.5">{(['FSC', 'CRC', 'AUP'] as const).map((key) => m[key] !== null && <MetricPill key={key} k={key} value={m[key]} size="sm" />)}</div>
+                        : <div className="flex flex-wrap gap-1.5 pt-0.5"><ObsChips e={e} max={3} /></div>}
                   </button>
                 )
               })}
@@ -290,11 +351,21 @@ export function Experiments() {
         <div className="pointer-events-none sticky bottom-4 z-30 mt-4 flex justify-center">
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-2 shadow-lg animate-fadeUp sm:gap-3 sm:px-4">
             <span className="text-sm"><span className="data font-semibold text-ink">{selected.size}</span> selected</span>
-            <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportExcel} disabled={selected.size === 0 || exporting !== null} title="Excel in the logging format">{exporting === 'xlsx' ? <Spinner className="h-4 w-4" /> : <><FileSpreadsheet size={14} /> Excel</>}</button>
-            <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportReport} disabled={selected.size === 0 || exporting !== null} title="Word lab report with comparison plots">{exporting === 'doc' ? <Spinner className="h-4 w-4" /> : <><FileText size={14} /> Report</>}</button>
-            <span className="h-5 w-px bg-line" />
-            <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Clear</button>
-            <button className="btn-danger h-8 px-3 text-xs" onClick={deleteSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><Trash2 size={14} /> Delete</>}</button>
+            {tab === 'deleted' ? (
+              <>
+                <button className="btn-outline h-8 px-3 text-xs" onClick={restoreSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><RotateCcw size={14} /> Restore</>}</button>
+                <button className="btn-danger h-8 px-3 text-xs" onClick={purgeSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><Trash2 size={14} /> Delete forever</>}</button>
+              </>
+            ) : (
+              <>
+                {tab === 'unfinished' && <button className="btn-outline h-8 px-2.5 text-xs" onClick={markDoneSelected} disabled={selected.size === 0 || busyDel}><CheckCircle2 size={14} /> Mark done</button>}
+                <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportExcel} disabled={selected.size === 0 || exporting !== null} title="Excel in the logging format">{exporting === 'xlsx' ? <Spinner className="h-4 w-4" /> : <><FileSpreadsheet size={14} /> Excel</>}</button>
+                <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportReport} disabled={selected.size === 0 || exporting !== null} title="Word lab report with comparison plots">{exporting === 'doc' ? <Spinner className="h-4 w-4" /> : <><FileText size={14} /> Report</>}</button>
+                <span className="h-5 w-px bg-line" />
+                <button className="btn-ghost h-8 px-2.5 text-xs" onClick={() => setSelected(new Set())} disabled={selected.size === 0}>Clear</button>
+                <button className="btn-danger h-8 px-3 text-xs" onClick={deleteSelected} disabled={selected.size === 0 || busyDel}>{busyDel ? <Spinner className="h-4 w-4" /> : <><Trash2 size={14} /> Delete</>}</button>
+              </>
+            )}
           </div>
         </div>
       )}

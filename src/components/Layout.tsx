@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { FlaskConical, LineChart, Library as LibraryIcon, ShieldCheck, Menu, X, LogOut, LayoutDashboard, Sparkles, Send, CalendarDays } from 'lucide-react'
+import { FlaskConical, LineChart, Library as LibraryIcon, ShieldCheck, Menu, X, LogOut, LayoutDashboard, Sparkles, Send, CalendarDays, Microscope } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { OwnerAvatar } from './ui'
 import { cx } from '../lib/utils'
@@ -24,6 +24,7 @@ const NAV = [
   { to: '/library', label: 'Library', icon: LibraryIcon },
   { to: '/reports', label: 'Reports', icon: Sparkles },
   { to: '/external', label: 'External tests', icon: Send },
+  { to: '/characterization', label: 'Characterization', icon: Microscope },
   { to: '/calendar', label: 'Team calendar', icon: CalendarDays },
 ]
 

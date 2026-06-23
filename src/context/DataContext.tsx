@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
-import type { Benchmark, Chemical, FullExperiment, NamedItem, RefTable, Person, Checkin, ExternalTest, LeaveRequest, WeeklyGoal, SupplierSample, Batch } from '../lib/types'
+import type { Benchmark, Chemical, FullExperiment, NamedItem, RefTable, Person, Checkin, ExternalTest, InstrumentTest, LeaveRequest, WeeklyGoal, SupplierSample, Batch } from '../lib/types'
 import { useAuth } from './AuthContext'
 
 interface DataValue {
@@ -18,6 +18,8 @@ interface DataValue {
   people: Person[]
   checkins: Checkin[]
   externalTests: ExternalTest[]
+  instrumentTests: InstrumentTest[]
+  deletedExperiments: FullExperiment[]
   leaveRequests: LeaveRequest[]
   weeklyGoals: WeeklyGoal[]
   refetchExperiments: () => Promise<void>
@@ -47,12 +49,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [people, setPeople] = useState<Person[]>([])
   const [checkins, setCheckins] = useState<Checkin[]>([])
   const [externalTests, setExternalTests] = useState<ExternalTest[]>([])
+  const [instrumentTests, setInstrumentTests] = useState<InstrumentTest[]>([])
+  const [deletedExperiments, setDeletedExperiments] = useState<FullExperiment[]>([])
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([])
   const [weeklyGoals, setWeeklyGoals] = useState<WeeklyGoal[]>([])
 
   const refetchExperiments = useCallback(async () => {
-    const { data } = await supabase.from('experiments').select(EXP_SELECT).order('en', { ascending: false })
-    setExperiments((data as FullExperiment[]) ?? [])
+    const [act, del] = await Promise.all([
+      supabase.from('experiments').select(EXP_SELECT).is('deleted_at', null).order('en', { ascending: false }),
+      supabase.from('experiments').select(EXP_SELECT).not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+    ])
+    setExperiments((act.data as FullExperiment[]) ?? [])
+    setDeletedExperiments((del.data as FullExperiment[]) ?? [])
   }, [])
 
   const refetchRefs = useCallback(async () => {
@@ -79,18 +87,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refetchTeam = useCallback(async () => {
-    const [pe, ci, et, lr, wg] = await Promise.all([
+    const [pe, ci, et, lr, wg, it] = await Promise.all([
       supabase.from('profiles').select('id,email,full_name,title,role,is_manager').order('full_name'),
       supabase.from('checkins').select('*').order('created_at', { ascending: false }).limit(400),
       supabase.from('external_tests').select('*').order('created_at', { ascending: false }),
       supabase.from('leave_requests').select('*').order('start_date', { ascending: false }),
       supabase.from('weekly_goals').select('*').order('week_start', { ascending: false }).limit(60),
+      supabase.from('instrument_tests').select('*').order('created_at', { ascending: false }),
     ])
     setPeople((pe.data as Person[]) ?? [])
     setCheckins((ci.data as Checkin[]) ?? [])
     setExternalTests((et.data as ExternalTest[]) ?? [])
     setLeaveRequests((lr.data as LeaveRequest[]) ?? [])
     setWeeklyGoals((wg.data as WeeklyGoal[]) ?? [])
+    setInstrumentTests((it.data as InstrumentTest[]) ?? [])
   }, [])
 
   useEffect(() => {
@@ -135,6 +145,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'batches' }, bRef)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'checkins' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'external_tests' }, bTeam)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'instrument_tests' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'weekly_goals' }, bTeam)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, bTeam)
@@ -183,6 +194,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     people,
     checkins,
     externalTests,
+    instrumentTests,
+    deletedExperiments,
     leaveRequests,
     weeklyGoals,
     refetchExperiments,

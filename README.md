@@ -441,3 +441,17 @@ No new database migration. **Remember to upload `public/report-template.docx` wi
 - **Structure mind-map.** The editor shows a small diagram with arrows from the experiment to its steps, qualitative observations and results, so the connections are visible at a glance.
 
 Reports keep the same template and style. No change to the export layout.
+
+---
+
+## v6.1 — Recycle bin, drafts, quick result plot, and Characterization
+
+**Run `migration_v9.sql` once in Supabase before deploying.** It adds `deleted_at` and `is_done` to experiments and a new `instrument_tests` table. The editor now writes `is_done`, so this migration is required before the new build goes live.
+
+- **Recently deleted (recycle bin).** Deleting experiments no longer removes them immediately — they move to a **Recently deleted** tab. From there you can **Restore** them or **Delete forever** (which finally removes them and all their data from the database). Select one or many, as before.
+- **Unfinished tab + "Experiment is done".** The editor has an **Experiment is done** switch. Leave it off to save a work-in-progress; it lands in the **Unfinished** tab instead of the main list. Tick it (in the editor, or select rows and **Mark done**) and it moves into Experiments.
+- **Quick result plot.** Opening an experiment now shows a **Results at a glance** bar chart — FSC / CRC / AUP for hygiene samples, FSC-in-DI for agricultural, plus any other numeric results (AUP 0.3, gel fraction, etc.).
+- **Qualitative results in the list.** Samples with only qualitative observations (no absorbency numbers) now show those observations as chips right in the Experiments list, instead of a dash.
+- **Characterization tab.** A new section for instrument tests — **FTIR, TGA, DSC, NMR, GPC, SEM** (and you can add your own techniques). Pick the experiment, choose the technique, and write a short explanation of the result. Filter by technique and search across results.
+
+Tabs in Experiments: **Experiments · Unfinished · Recently deleted**. Reports and exports are unchanged.
