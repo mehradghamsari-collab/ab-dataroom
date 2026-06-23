@@ -8,7 +8,7 @@ import { ImportModal } from './ImportExperiments'
 import { FullLoader, EmptyState, TypePill, OwnerAvatar, MetricPill, Segmented, Spinner, useToast, useConfirm } from '../components/ui'
 import { supabase } from '../lib/supabase'
 import { exportTrackerXlsx } from '../lib/backup'
-import { generateLabReportDocx } from '../lib/docgen'
+import { generateTemplateReport } from '../lib/reportTemplate'
 import { sampleMetrics } from '../lib/metrics'
 import { PROJECTS, projectByCode } from '../lib/projects'
 import { cx, fmtDate } from '../lib/utils'
@@ -112,7 +112,7 @@ export function Experiments() {
   const exportReport = async () => {
     const exps = selectedExps(); if (!exps.length) return
     setExporting('doc')
-    try { await generateLabReportDocx(exps, chemicals, exps.length === 1 ? `Lab Report — EN${exps[0].en}` : 'Lab Report'); toast(`Report ready · ${exps.length} experiment${exps.length === 1 ? '' : 's'}`) }
+    try { await generateTemplateReport(exps, chemicals); toast(`Report ready · ${exps.length} experiment${exps.length === 1 ? '' : 's'}`) }
     catch (e: any) { toast(e?.message ?? 'Report failed', 'err') } finally { setExporting(null) }
   }
 

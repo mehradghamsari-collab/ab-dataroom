@@ -410,3 +410,18 @@ With **Select** on (Experiments page), the floating bar now has two export butto
 **Report** — generates a Word **lab report** for the selected experiments. When two or more are selected it opens with a **comparison section**: an absorbency bar chart (FSC/CRC/AUP per experiment), a CRC-vs-AUP positioning scatter, and a summary table — followed by a full per-experiment write-up (materials, procedure, results, cost, method, next steps). Charts are drawn into the document as images.
 
 No new migration.
+
+---
+
+## v5.9 — Template-based weekly report, industry classification, and a visual batch connector
+
+**Report now follows your Word template.** The **Report** button (Select → Report) fills `tempelate_report.docx` directly: the report date, the Project / Work-package line, the **2. Experimental Work** section (an "Experiments performed" table) and the **4. Results & Data Summary** section (a results table + graphs). Everything else in the template is left exactly as-is. The report is intentionally concise — a table of experiments done, a results table, the graphs, and a short line of explanation each. *(The template lives at `public/report-template.docx` — keep it in the repo when you deploy.)*
+
+**Industry classification + separate graphs.** Experiments are split automatically:
+- **Agricultural SAP** — only FSC in DI water recorded.
+- **Hygiene SAP** — FSC in saline + CRC + AUP recorded.
+Each class gets its own chart in the report (agricultural: FSC-DI; hygiene: FSC/CRC/AUP), and the tables tag every experiment with its class.
+
+**Visual batch connector in the importer.** In Paste import → Fill rest, when two or more new experiments are detected you now get a **mind-map linker**: mark the experiment that is the *batch* (box icon), then click the others to link them — branches draw out as **arrows** from the batch to its experiments. You can have several batches, switch the active one, or hit **Auto** to link a detected bulk run to the rest. On import each batch is created from its source experiment and the linked experiments are attached to it. The old "shared batch not in the paste" option remains as a fallback.
+
+No new database migration. **Remember to upload `public/report-template.docx` with the rest of the files.**

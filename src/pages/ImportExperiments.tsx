@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useEffect, useLayoutEffect } from 'react'
 import type { Dispatch, SetStateAction, ClipboardEvent } from 'react'
-import { ClipboardPaste, X, Check, ArrowRight, ArrowLeft, AlertTriangle, Sparkles, FlaskConical, Cog, Gauge, Boxes, Plus, Table2, Trash2 } from 'lucide-react'
+import { ClipboardPaste, X, Check, ArrowRight, ArrowLeft, AlertTriangle, Sparkles, FlaskConical, Cog, Gauge, Boxes, Plus, Table2, Trash2, Link2, Workflow } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
@@ -151,12 +151,15 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
   const [projectAll, setProjectAll] = useState('')
   const [updateExisting, setUpdateExisting] = useState(true)
   const [linkBulkBatch, setLinkBulkBatch] = useState(true)
+  const [batchParents, setBatchParents] = useState<Set<number>>(new Set())
+  const [childOf, setChildOf] = useState<Record<number, number>>({})
+  const [activeBatch, setActiveBatch] = useState<number | null>(null)
   const [useManualBatch, setUseManualBatch] = useState(false)
   const [mBatch, setMBatch] = useState<{ name: string; total_made: string; dried_yield: string; notes: string; composition: { name: string; amount: string; unit: string }[] }>({ name: '', total_made: '', dried_yield: '', notes: '', composition: [] })
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ added: number; updated: number; skipped: number; mats: number; procs: number; reslt: number; ens: number[]; batch?: string } | null>(null)
 
-  const reset = () => { setStep('paste'); setMode('grid'); setGrid(Array.from({ length: 6 }, () => Array(NCOLS).fill(''))); setRaw(''); setHeaders([]); setBody([]); setHasHeader(true); setBaseOverride({}); setInc({ materials: true, processes: true, results: true }); setProjectAll(''); setUpdateExisting(true); setLinkBulkBatch(true); setUseManualBatch(false); setMBatch({ name: '', total_made: '', dried_yield: '', notes: '', composition: [] }); setResult(null) }
+  const reset = () => { setStep('paste'); setMode('grid'); setGrid(Array.from({ length: 6 }, () => Array(NCOLS).fill(''))); setRaw(''); setHeaders([]); setBody([]); setHasHeader(true); setBaseOverride({}); setInc({ materials: true, processes: true, results: true }); setProjectAll(''); setUpdateExisting(true); setLinkBulkBatch(true); setBatchParents(new Set()); setChildOf({}); setActiveBatch(null); setUseManualBatch(false); setMBatch({ name: '', total_made: '', dried_yield: '', notes: '', composition: [] }); setResult(null) }
   const close = () => { reset(); onClose() }
 
   const parseNow = (text: string) => {
@@ -268,25 +271,30 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
         }
       }
 
-      // ----- Shared batch for the optimisation set (new experiments only) -----
+      // ----- Batches: user-drawn links (parent → children), else one shared batch -----
       let batchLabel = ''
-      let batchId: string | null = null
-      if (bulkRow && linkBulkBatch) {
-        const comp = bulkRow.materials.map((m: any) => ({ name: m.name, amount: m.mass_g, unit: m.unit || 'g' }))
-        const { data: b, error: be } = await supabase.from('batches').insert({ code: `B-EN${bulkRow.en}`, name: bulkRow.exp.description || `Batch from EN${bulkRow.en}`, composition: comp, owner: bulkRow.exp.owner, prepared_date: bulkRow.exp.date, notes: 'Created from pasted bulk-processing experiment', created_by: profile?.id ?? null }).select('id,code,name').single()
-        if (be) throw be
-        batchId = (b as any).id; batchLabel = `${(b as any).code} · ${(b as any).name}`
+      if (batchParents.size > 0) {
+        let made = 0
+        for (const parentEn of batchParents) {
+          const parentRow = rows.find((r) => r.en === parentEn)
+          const parentId = idByEn.get(parentEn)
+          if (!parentRow || !parentId) continue
+          const comp = parentRow.materials.map((m: any) => ({ name: m.name, amount: m.mass_g, unit: m.unit || 'g' }))
+          const { data: b, error: be } = await supabase.from('batches').insert({ code: `B-EN${parentEn}`, name: parentRow.exp.description || `Batch from EN${parentEn}`, composition: comp, owner: parentRow.exp.owner, prepared_date: parentRow.exp.date, notes: 'Created from a pasted experiment (batch link)', created_by: profile?.id ?? null }).select('id,code,name').single()
+          if (be) throw be
+          const bId = (b as any).id; made++; batchLabel = `${(b as any).code} · ${(b as any).name}`
+          const childEns = Object.entries(childOf).filter(([, p]) => Number(p) === parentEn).map(([c]) => Number(c))
+          const linkRows = childEns.map((ce) => { const cid = idByEn.get(ce); if (!cid) return null; return { experiment_id: cid, position: 90, name: `${(b as any).code} · ${(b as any).name}`, mass_g: null, unit: 'g', ratio: null, stage: null, batch_id: bId } }).filter(Boolean) as any[]
+          if (linkRows.length) { const { error: e } = await supabase.from('experiment_materials').insert(linkRows); if (e) throw e }
+        }
+        if (made > 1) batchLabel = `${made} batches`
+        await refetchRefs()
       } else if (useManualBatch && mBatch.name.trim()) {
         const comp = mBatch.composition.filter((c) => c.name.trim()).map((c) => ({ name: c.name.trim(), amount: c.amount === '' ? null : parseFloat(c.amount), unit: c.unit || 'g' }))
         const { data: b, error: be } = await supabase.from('batches').insert({ name: mBatch.name.trim(), total_made: mBatch.total_made || null, dried_yield: mBatch.dried_yield || null, notes: mBatch.notes || null, composition: comp, created_by: profile?.id ?? null }).select('id,name').single()
         if (be) throw be
-        batchId = (b as any).id; batchLabel = (b as any).name
-      }
-      if (batchId) {
-        const linkRows = rows.filter((r) => !(bulkRow && linkBulkBatch && r.en === bulkRow.en)).map((r) => {
-          const id = r.en != null ? idByEn.get(r.en) : undefined; if (!id) return null
-          return { experiment_id: id, position: 90, name: batchLabel, mass_g: null, unit: 'g', ratio: null, stage: null, batch_id: batchId }
-        }).filter(Boolean) as any[]
+        const batchId = (b as any).id; batchLabel = (b as any).name
+        const linkRows = rows.map((r) => { const id = r.en != null ? idByEn.get(r.en) : undefined; if (!id) return null; return { experiment_id: id, position: 90, name: batchLabel, mass_g: null, unit: 'g', ratio: null, stage: null, batch_id: batchId } }).filter(Boolean) as any[]
         if (linkRows.length) { const { error: e } = await supabase.from('experiment_materials').insert(linkRows); if (e) throw e }
         await refetchRefs()
       }
@@ -412,26 +420,27 @@ export function ImportModal({ open, onClose }: { open: boolean; onClose: () => v
             <p><strong className="text-ink">Surface-linking rows:</strong> where a chemical is a prior EN (e.g. <span className="data">EN1, 1.5 g</span>), it imports just as written — the sample name and amount are preserved so the lineage stays visible.</p>
           </div>
 
-          {/* Shared batch for an optimisation set */}
-          {bulkRow ? (
-            <div className="rounded-xl border border-[#6C5CE0]/30 bg-[#6C5CE0]/[0.05] p-3.5">
-              <label className="flex cursor-pointer items-start gap-2.5">
-                <input type="checkbox" checked={linkBulkBatch} onChange={(e) => setLinkBulkBatch(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[#6C5CE0]" />
-                <span className="text-sm">
-                  <span className="flex items-center gap-1.5 font-semibold text-[#5A4BD0]"><Boxes size={14} /> Big batch detected — EN{bulkRow.en} (Bulk processing)</span>
-                  <span className="mt-0.5 block text-xs text-muted">Create a batch from EN{bulkRow.en} and link the other {continuations} pasted experiment{continuations === 1 ? '' : 's'} to it as continuations of the same batch.</span>
-                </span>
-              </label>
-            </div>
-          ) : (
+          {/* Connect experiments to their batch — visual mind-map */}
+          {analysisRows.newOnes.length >= 2 && (
+            <BatchLinker
+              rows={analysisRows.newOnes.map((r) => ({ en: r.en!, type: r.exp.experiment_type || '', desc: r.exp.description || '' }))}
+              parents={batchParents} setParents={setBatchParents}
+              childOf={childOf} setChildOf={setChildOf}
+              active={activeBatch} setActive={setActiveBatch}
+              suggestBulk={bulkRow ? bulkRow.en! : null}
+            />
+          )}
+
+          {/* Shared batch that isn't among the pasted rows */}
+          {batchParents.size === 0 && (
             <div className="rounded-xl border border-line bg-paper p-3.5">
               <label className="flex cursor-pointer items-center gap-2.5">
                 <input type="checkbox" checked={useManualBatch} onChange={(e) => setUseManualBatch(e.target.checked)} className="h-4 w-4 accent-brand" />
-                <span className="flex items-center gap-1.5 text-sm font-medium text-ink"><Boxes size={14} className="text-brand" /> These came from a shared batch</span>
+                <span className="flex items-center gap-1.5 text-sm font-medium text-ink"><Boxes size={14} className="text-brand" /> They came from one shared batch (not in the paste)</span>
               </label>
               {useManualBatch && (
                 <div className="mt-3 space-y-2.5">
-                  <p className="text-xs text-muted">The batch isn't in the spreadsheet — add its details once and all {analysisRows.newOnes.length} pasted experiments will link to it.</p>
+                  <p className="text-xs text-muted">Add the batch details once and all {analysisRows.newOnes.length} pasted experiments will link to it.</p>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <input className="field" placeholder="Batch name (e.g. 4% XG in water)" value={mBatch.name} onChange={(e) => setMBatch({ ...mBatch, name: e.target.value })} />
                     <input className="field" placeholder="Total made (e.g. 5 L)" value={mBatch.total_made} onChange={(e) => setMBatch({ ...mBatch, total_made: e.target.value })} />
@@ -609,6 +618,127 @@ function GridEditor({ grid, setGrid }: { grid: string[][]; setGrid: Dispatch<Set
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+/* ---------- Visual batch linker (mind-map: batch → children with arrows) ---------- */
+function BatchLinker({ rows, parents, setParents, childOf, setChildOf, active, setActive, suggestBulk }: {
+  rows: { en: number; type: string; desc: string }[]
+  parents: Set<number>; setParents: Dispatch<SetStateAction<Set<number>>>
+  childOf: Record<number, number>; setChildOf: Dispatch<SetStateAction<Record<number, number>>>
+  active: number | null; setActive: Dispatch<SetStateAction<number | null>>
+  suggestBulk: number | null
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const nodeRefs = useRef<Map<number, HTMLElement>>(new Map())
+  const [arrows, setArrows] = useState<{ id: string; d: string; on: boolean }[]>([])
+  const parentList = rows.filter((r) => parents.has(r.en))
+  const childList = rows.filter((r) => !parents.has(r.en))
+  const childKey = JSON.stringify(childOf)
+  const parentKey = [...parents].sort((a, b) => a - b).join(',')
+
+  const setNode = (en: number) => (el: HTMLElement | null) => { if (el) nodeRefs.current.set(en, el); else nodeRefs.current.delete(en) }
+  const recompute = () => {
+    const c = containerRef.current; if (!c) return
+    const cb = c.getBoundingClientRect()
+    const out: { id: string; d: string; on: boolean }[] = []
+    Object.entries(childOf).forEach(([ce, pe]) => {
+      const p = nodeRefs.current.get(Number(pe)); const ch = nodeRefs.current.get(Number(ce)); if (!p || !ch) return
+      const pr = p.getBoundingClientRect(); const cr = ch.getBoundingClientRect()
+      const x1 = pr.right - cb.left, y1 = pr.top + pr.height / 2 - cb.top
+      const x2 = cr.left - cb.left, y2 = cr.top + cr.height / 2 - cb.top
+      const mx = x1 + Math.max(28, (x2 - x1) / 2)
+      out.push({ id: `${pe}-${ce}`, d: `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`, on: active === Number(pe) })
+    })
+    setArrows(out)
+  }
+  const recomputeRef = useRef(recompute); recomputeRef.current = recompute
+  useLayoutEffect(() => { recompute() }, [childKey, parentKey, active, rows.length]) // eslint-disable-line
+  useEffect(() => {
+    const c = containerRef.current; if (!c) return
+    const ro = new ResizeObserver(() => recomputeRef.current())
+    ro.observe(c)
+    const h = () => recomputeRef.current()
+    window.addEventListener('resize', h)
+    return () => { ro.disconnect(); window.removeEventListener('resize', h) }
+  }, [])
+
+  const makeBatch = (en: number) => { setParents((p) => new Set(p).add(en)); setChildOf((c) => { const n = { ...c }; delete n[en]; return n }); setActive(en) }
+  const removeBatch = (en: number) => { setParents((p) => { const n = new Set(p); n.delete(en); return n }); setChildOf((c) => Object.fromEntries(Object.entries(c).filter(([, v]) => Number(v) !== en))); setActive((a) => (a === en ? null : a)) }
+  const toggleChild = (en: number) => { if (active == null) return; setChildOf((c) => { const n = { ...c }; if (Number(n[en]) === active) delete n[en]; else n[en] = active; return n }) }
+  const autoDetect = () => { if (suggestBulk == null) return; setParents(new Set([suggestBulk])); setChildOf(Object.fromEntries(rows.filter((r) => r.en !== suggestBulk).map((r) => [r.en, suggestBulk]))); setActive(suggestBulk) }
+  const clearAll = () => { setParents(new Set()); setChildOf({}); setActive(null) }
+  const childCount = (en: number) => Object.values(childOf).filter((v) => Number(v) === en).length
+
+  return (
+    <div className="rounded-xl border border-[#6C5CE0]/30 bg-[#6C5CE0]/[0.04] p-3.5">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-sm font-semibold text-[#5A4BD0]"><Workflow size={15} /> Connect experiments to their batch</span>
+        <div className="flex gap-1.5">
+          {suggestBulk != null && <button className="btn-ghost h-7 px-2 text-2xs" onClick={autoDetect}><Sparkles size={12} /> Auto: EN{suggestBulk} → rest</button>}
+          {(parents.size > 0 || Object.keys(childOf).length > 0) && <button className="btn-ghost h-7 px-2 text-2xs text-muted" onClick={clearAll}>Clear</button>}
+        </div>
+      </div>
+      <p className="mb-3 text-xs text-muted">
+        {parents.size === 0
+          ? 'Mark the experiment that is the batch (the big prep) with the box icon. Then click the others to link them to it — they’ll draw out as branches.'
+          : active != null
+            ? <>Linking to <span className="font-semibold text-[#5A4BD0]">EN{active}</span> — click experiments on the right to add or remove them. Pick another batch on the left to switch.</>
+            : 'Select a batch on the left, then click experiments on the right to link them.'}
+      </p>
+
+      <div ref={containerRef} className="relative grid grid-cols-[1fr_1.1fr] gap-x-10">
+        <svg className="pointer-events-none absolute inset-0 h-full w-full" style={{ overflow: 'visible' }}>
+          <defs>
+            <marker id="bl-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#6C5CE0" /></marker>
+            <marker id="bl-arrow-dim" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill="#C9C4E8" /></marker>
+          </defs>
+          {arrows.map((a) => <path key={a.id} d={a.d} fill="none" stroke={a.on ? '#6C5CE0' : '#C9C4E8'} strokeWidth={a.on ? 2.2 : 1.6} markerEnd={`url(#${a.on ? 'bl-arrow' : 'bl-arrow-dim'})`} />)}
+        </svg>
+
+        {/* Left — batches */}
+        <div className="relative z-10 space-y-2">
+          <div className="text-2xs font-semibold uppercase tracking-wider text-subtle">Batches</div>
+          {parentList.length === 0 && <div className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-2xs text-subtle">No batch yet — mark one on the right →</div>}
+          {parentList.map((r) => (
+            <div key={r.en} ref={setNode(r.en)} onClick={() => setActive(r.en)}
+              className={cx('cursor-pointer rounded-lg border-2 bg-surface px-3 py-2 shadow-sm transition', active === r.en ? 'border-[#6C5CE0] ring-2 ring-[#6C5CE0]/25' : 'border-[#6C5CE0]/40 hover:border-[#6C5CE0]')}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5"><Boxes size={13} className="text-[#5A4BD0]" /><span className="data text-sm font-semibold text-ink">EN{r.en}</span></span>
+                <button onClick={(e) => { e.stopPropagation(); removeBatch(r.en) }} className="text-subtle transition hover:text-danger"><X size={13} /></button>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between">
+                <span className="truncate text-2xs text-muted">{r.desc || r.type || 'batch'}</span>
+                <span className="ml-2 shrink-0 rounded-full bg-[#6C5CE0]/12 px-1.5 text-2xs font-semibold text-[#5A4BD0]">{childCount(r.en)} linked</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Right — experiments */}
+        <div className="relative z-10 space-y-2">
+          <div className="text-2xs font-semibold uppercase tracking-wider text-subtle">Experiments</div>
+          {childList.map((r) => {
+            const linked = childOf[r.en] != null
+            const onActive = Number(childOf[r.en]) === active
+            return (
+              <div key={r.en} ref={setNode(r.en)} onClick={() => toggleChild(r.en)}
+                className={cx('group/node flex items-center justify-between gap-2 rounded-lg border bg-surface px-3 py-2 transition', active != null ? 'cursor-pointer' : '', onActive ? 'border-[#6C5CE0] bg-[#6C5CE0]/[0.06]' : linked ? 'border-[#6C5CE0]/30' : 'border-line hover:border-line/80')}>
+                <span className="min-w-0">
+                  <span className="data text-sm font-medium text-ink">EN{r.en}</span>
+                  {(r.desc || r.type) && <span className="ml-1.5 truncate text-2xs text-muted">{r.desc || r.type}</span>}
+                  {linked && <span className="ml-1.5 text-2xs font-medium text-[#5A4BD0]">→ EN{childOf[r.en]}</span>}
+                </span>
+                <span className="flex items-center gap-1">
+                  {active != null && (onActive ? <Link2 size={14} className="text-[#5A4BD0]" /> : <span className="text-2xs text-subtle opacity-0 transition group-hover/node:opacity-100">link</span>)}
+                  <button title="Make this a batch" onClick={(e) => { e.stopPropagation(); makeBatch(r.en) }} className="grid h-6 w-6 place-items-center rounded text-subtle transition hover:bg-[#6C5CE0]/10 hover:text-[#5A4BD0]"><Boxes size={13} /></button>
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
