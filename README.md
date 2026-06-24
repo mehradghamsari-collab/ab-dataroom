@@ -469,3 +469,15 @@ A material cost database (`material_cost_database.xlsx`) is now built into the a
 - No database migration is needed for this feature — prices live in the app. DENACOL EX-614B and FAVOR Bio T180 aren't in the file yet, so they currently add $0.
 
 A standalone **`formulation_costs.xlsx`** report is also provided: a per-experiment lab-vs-bulk cost for all 522 experiments, a full material-line breakdown (with SUMIF formulas), the cost database, and notes.
+
+---
+
+## v6.3 — Plot by the variable that changed + live plotting from the list
+
+- **The X axis is now the parameter that actually varies.** When you plot a set of samples, the app looks at what differs between them — a crosslinker amount, an oven temperature, a ratio — and puts that on the X axis as a response curve, instead of the experiment number. If several inputs vary you can switch between them with the **X axis** menu, or fall back to plotting by experiment number.
+- **Plot straight from the Experiments list, live.** In the list, hit **Select**, tick the experiments you want, and press **Plot**. A panel opens and updates in real time as you tick or untick rows. Choose which results to show (FSC, CRC, AUP, FSC-DI, AUP 0.3); the X axis auto-detects what changed.
+- The **Plot & analyse → Compare** tab uses the same smart X axis.
+
+Tip: for a clean response curve, select one series (samples that change a single input). If nothing varies cleanly, the plot falls back to experiment number and tells you.
+
+No database migration needed for this feature.

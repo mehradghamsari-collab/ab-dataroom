@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check, FileSpreadsheet, FileText, Clock, RotateCcw, CheckCircle2 } from 'lucide-react'
+import { Plus, Search, FlaskConical, SlidersHorizontal, ArrowDownUp, X, User, ClipboardPaste, CheckSquare, Trash2, Check, FileSpreadsheet, FileText, Clock, RotateCcw, CheckCircle2, BarChart3 } from 'lucide-react'
+import { SeriesPlot } from '../components/SeriesPlot'
 import { useData } from '../context/DataContext'
 import { useAuth } from '../context/AuthContext'
 import type { FullExperiment } from '../lib/types'
@@ -78,6 +79,7 @@ export function Experiments() {
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busyDel, setBusyDel] = useState(false)
+  const [showPlot, setShowPlot] = useState(false)
   const [exporting, setExporting] = useState<null | 'xlsx' | 'doc'>(null)
 
   const myKeys = useMemo(() => {
@@ -167,6 +169,7 @@ export function Experiments() {
     } catch (e: any) { toast(e?.message ?? 'Update failed', 'err') } finally { setBusyDel(false) }
   }
   const selectedExps = () => [...selected].map((id) => experiments.find((e) => e.id === id)).filter(Boolean) as FullExperiment[]
+  const selectedForPlot = useMemo(() => [...selected].map((id) => experiments.find((e) => e.id === id)).filter(Boolean) as FullExperiment[], [selected, experiments])
   const exportExcel = async () => {
     const exps = selectedExps(); if (!exps.length) return
     setExporting('xlsx')
@@ -347,6 +350,20 @@ export function Experiments() {
         )}
       </div>
 
+      {selecting && showPlot && tab !== 'deleted' && (
+        <div className="sticky bottom-20 z-20 mt-4 animate-fadeUp">
+          <div className="card border-brand-ring/40 p-3 shadow-pop">
+            <div className="mb-1.5 flex items-center justify-between">
+              <h3 className="flex items-center gap-1.5 text-sm font-semibold"><BarChart3 size={15} className="text-brand" /> Live plot · {selectedForPlot.length} selected</h3>
+              <button className="btn-ghost h-7 px-2 text-xs" onClick={() => setShowPlot(false)}><X size={14} /> Hide</button>
+            </div>
+            {selectedForPlot.length < 2
+              ? <div className="flex h-[180px] items-center justify-center rounded-xl border border-dashed border-line bg-paper text-center text-sm text-muted">Tick at least two experiments — the X axis will use whatever input differs between them.</div>
+              : <SeriesPlot exps={selectedForPlot} height={300} />}
+          </div>
+        </div>
+      )}
+
       {selecting && (
         <div className="pointer-events-none sticky bottom-4 z-30 mt-4 flex justify-center">
           <div className="pointer-events-auto flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-2 shadow-lg animate-fadeUp sm:gap-3 sm:px-4">
@@ -358,6 +375,7 @@ export function Experiments() {
               </>
             ) : (
               <>
+                <button className={cx('btn-outline h-8 px-2.5 text-xs', showPlot && 'border-brand bg-brand-tint text-brand-dark')} onClick={() => setShowPlot((s) => !s)} disabled={selected.size === 0} title="Plot the selected experiments live"><BarChart3 size={14} /> Plot</button>
                 {tab === 'unfinished' && <button className="btn-outline h-8 px-2.5 text-xs" onClick={markDoneSelected} disabled={selected.size === 0 || busyDel}><CheckCircle2 size={14} /> Mark done</button>}
                 <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportExcel} disabled={selected.size === 0 || exporting !== null} title="Excel in the logging format">{exporting === 'xlsx' ? <Spinner className="h-4 w-4" /> : <><FileSpreadsheet size={14} /> Excel</>}</button>
                 <button className="btn-outline h-8 px-2.5 text-xs" onClick={exportReport} disabled={selected.size === 0 || exporting !== null} title="Word lab report with comparison plots">{exporting === 'doc' ? <Spinner className="h-4 w-4" /> : <><FileText size={14} /> Report</>}</button>

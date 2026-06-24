@@ -5,6 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ZAxis, Cell, LabelList, ReferenceLine, ReferenceArea,
 } from 'recharts'
 import { LineChart as LineIcon, ScatterChart as ScatterIcon, BarChart3, Download, Filter, X, Search, Check, Target, Coins, PieChart as PieIcon, TrendingUp, GitCompareArrows, Palette } from 'lucide-react'
+import { SeriesPlot } from '../components/SeriesPlot'
 import { useData } from '../context/DataContext'
 import type { FullExperiment, Benchmark } from '../lib/types'
 import { FullLoader, EmptyState, Tabs, Segmented, MetricPill, ChartWatermark } from '../components/ui'
@@ -71,7 +72,6 @@ function CompareTab({ initial }: { initial?: string[] }) {
   const { experiments } = useData()
   const withMetrics = useMemo(() => experiments.filter((e) => PLOT_METRICS.some((pm) => pm.get(e) !== null)), [experiments])
   const [picked, setPicked] = useState<string[]>(initial ?? [])
-  const [activeMetrics, setActiveMetrics] = useState<Record<PlotKey, boolean>>({ FSC: true, CRC: true, AUP: true, FSCDI: false, AUP03: false })
 
   useEffect(() => { if (initial && initial.length) setPicked(initial) }, [initial])
   useEffect(() => {
@@ -79,15 +79,6 @@ function CompareTab({ initial }: { initial?: string[] }) {
   }, [withMetrics]) // eslint-disable-line
 
   const pickedExps = useMemo(() => picked.map((id) => withMetrics.find((e) => e.id === id)).filter(Boolean) as FullExperiment[], [picked, withMetrics])
-  const activeDefs = PLOT_METRICS.filter((pm) => activeMetrics[pm.key])
-
-  const data = useMemo(() => pickedExps.map((e) => {
-    const row: any = { label: `EN${e.en}`, desc: e.description || '' }
-    PLOT_METRICS.forEach((pm) => { row[pm.key] = pm.get(e) })
-    return row
-  }), [pickedExps])
-
-  const onlyOne = activeDefs.length === 1 ? activeDefs[0] : null
 
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_1fr]">
@@ -96,40 +87,11 @@ function CompareTab({ initial }: { initial?: string[] }) {
       </div>
 
       <div className="card p-4">
-        <div className="mb-1 text-xs text-muted">Pick one metric to compare it alone (e.g. only CRC, only FSC in DI), or several to see them side by side.</div>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-1.5">
-            {PLOT_METRICS.map((pm) => (
-              <button key={pm.key} onClick={() => setActiveMetrics((s) => ({ ...s, [pm.key]: !s[pm.key] }))} className={cx('inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all', activeMetrics[pm.key] ? 'text-white' : 'bg-black/[0.04] text-muted')} style={activeMetrics[pm.key] ? { background: pm.color } : undefined}>
-                {activeMetrics[pm.key] && <Check size={13} />} {pm.label}
-              </button>
-            ))}
-          </div>
-          {data.length > 0 && <button className="btn-ghost h-7 text-xs text-muted" onClick={() => downloadCSV('compare.csv', data.map((d) => { const o: any = { EN: d.label, description: d.desc }; PLOT_METRICS.forEach((pm) => { o[pm.label] = d[pm.key] }); return o }))}><Download size={13} /> CSV</button>}
-        </div>
-
-        {data.length === 0 ? (
+        <div className="mb-2 text-xs text-muted">The X axis automatically uses the input that differs across your selection (crosslinker amount, temperature, ratio…). Switch it with the “X axis” menu, or pick one metric to see it alone.</div>
+        {pickedExps.length === 0 ? (
           <NoData msg="Select one or more experiments to compare." />
-        ) : activeDefs.length === 0 ? (
-          <NoData msg="Turn on at least one metric to plot." />
         ) : (
-          <div className="relative h-[420px] w-full sm:h-[460px]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <BarChart data={data} margin={{ top: 8, right: 12, bottom: 40, left: 4 }} barGap={3} barCategoryGap={data.length > 8 ? '16%' : '26%'}>
-                <CartesianGrid stroke={GRID} vertical={false} />
-                <XAxis dataKey="label" tick={tickBold} stroke={AXIS} interval={0} angle={data.length > 6 ? -20 : 0} textAnchor={data.length > 6 ? 'end' : 'middle'} height={data.length > 6 ? 56 : 36} />
-                <YAxis tick={tickStyle} stroke={AXIS} width={52} label={{ value: onlyOne ? `${onlyOne.label} (g/g)` : 'g/g', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6C7077', fontWeight: 600, textAnchor: 'middle' } }} />
-                <Tooltip cursor={{ fill: 'rgba(14,138,148,0.06)' }} content={<CompareTip />} />
-                <Legend {...legendTop} />
-                {activeDefs.map((pm) => (
-                  <Bar key={pm.key} dataKey={pm.key} name={pm.label} fill={pm.color} radius={[5, 5, 0, 0]} maxBarSize={56} isAnimationActive>
-                    {data.length <= 8 && <LabelList dataKey={pm.key} position="top" style={{ fontSize: 11, fontWeight: 700, fill: pm.color, fontFamily: 'JetBrains Mono, monospace' }} formatter={(v: any) => (v == null ? '' : v)} />}
-                  </Bar>
-                ))}
-              </BarChart>
-            </ResponsiveContainer>
-            <ChartWatermark />
-          </div>
+          <div className="h-[440px] w-full sm:h-[480px]"><SeriesPlot exps={pickedExps} height={440} /></div>
         )}
       </div>
     </div>
